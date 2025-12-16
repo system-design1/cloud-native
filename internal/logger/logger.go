@@ -2,7 +2,6 @@ package logger
 
 import (
 	"os"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -19,13 +18,8 @@ func Init() {
 	zerolog.LevelFieldName = "level"
 	zerolog.MessageFieldName = "message"
 
-	// Use console writer for development, JSON for production
-	output := zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		TimeFormat: time.RFC3339,
-	}
-
-	globalLogger = zerolog.New(output).
+	// Use JSON format for all logs (structured logging)
+	globalLogger = zerolog.New(os.Stdout).
 		With().
 		Timestamp().
 		Logger()
