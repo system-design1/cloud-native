@@ -5,6 +5,7 @@
 *.so
 *.dylib
 go-backend-service
+/server
 
 # Test binary, built with `go test -c`
 *.test
