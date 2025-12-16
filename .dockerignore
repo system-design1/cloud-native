@@ -20,6 +20,7 @@ Thumbs.db
 
 # Build artifacts
 go-backend-service
+bin/
 *.exe
 *.dll
 *.so

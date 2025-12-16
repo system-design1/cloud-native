@@ -17,6 +17,7 @@
 
 ```
 .
+├── bin/                 # Compiled binaries (generated)
 ├── cmd/
 │   └── server/          # Entry point
 ├── internal/
@@ -75,15 +76,32 @@ GIN_MODE=release
 
 ### اجرای پروژه
 
-#### اجرای مستقیم (بدون Docker)
+#### اجرای محلی (توصیه می‌شود برای Development)
+
+برای راهنمای کامل اجرای محلی، به [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) مراجعه کنید.
 
 ```bash
+# راه‌اندازی کامل محیط توسعه (ایجاد .env و راه‌اندازی دیتابیس)
+make dev
+
+# اجرای برنامه با hot reload (توصیه می‌شود)
+make dev-run
+
+# یا اجرای ساده
 make run
-# یا
-go run ./cmd/server
 ```
 
-#### اجرا با Docker Compose
+#### Debug با VS Code
+
+برای راهنمای کامل debug با VS Code، به [VSCODE_DEBUG.md](./VSCODE_DEBUG.md) مراجعه کنید.
+
+**راه‌اندازی سریع:**
+1. نصب Go Extension در VS Code
+2. راه‌اندازی دیتابیس: `make dev-db-up`
+3. فشردن F5 برای شروع debug
+4. قرار دادن breakpoint و debug کردن!
+
+#### اجرا با Docker Compose (Production)
 
 ```bash
 # ساخت و راه‌اندازی سرویس‌ها
@@ -100,14 +118,33 @@ make docker-down
 
 ```bash
 make help          # نمایش تمام دستورات موجود
+
+# Development (Local)
+make dev           # راه‌اندازی کامل محیط توسعه
+make dev-setup     # ایجاد فایل .env از env.example
+make dev-db-up     # راه‌اندازی دیتابیس محلی
+make dev-db-down   # توقف دیتابیس محلی
+make dev-run       # اجرای برنامه با hot reload (air)
+make run           # اجرای ساده برنامه
+
+# Build & Test
 make build         # ساخت پروژه
-make run           # اجرای پروژه
 make test          # اجرای تست‌ها
+make deps          # دانلود وابستگی‌ها
+
+# Docker
 make docker-build  # ساخت Docker image
 make docker-up     # راه‌اندازی Docker containers
 make docker-down   # توقف Docker containers
+make docker-logs   # مشاهده لاگ‌های Docker
+
+# Utilities
 make clean         # پاکسازی فایل‌های build
+make fmt           # فرمت کردن کد
+make lint          # اجرای linter
 ```
+
+برای جزئیات بیشتر، به [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) مراجعه کنید.
 
 ## API Endpoints
 
@@ -127,6 +164,16 @@ GET /hello
 make docker-build
 # یا
 docker build -t go-backend-service:latest .
+```
+
+## ساخت Binary
+
+```bash
+make build
+# Binary در bin/go-backend-service قرار می‌گیرد
+
+# اجرای مستقیم binary
+./bin/go-backend-service
 ```
 
 ## تست

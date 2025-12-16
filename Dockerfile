@@ -1,17 +1,29 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git make
+RUN rm -rf /var/cache/apk/* /etc/apk/cache/* && \
+    (apk update --no-cache || \
+     (sed -i 's/dl-cdn.alpinelinux.org/mirror.yandex.ru\/mirrors\/alpine/g' /etc/apk/repositories && \
+      apk update --no-cache)) && \
+    apk add --no-cache git make
 
 # Set working directory
 WORKDIR /build
 
-# Copy go mod files
-COPY go.mod go.sum ./
-RUN go mod download
+# Set GOPROXY with multiple mirrors for Go modules
+ENV GOPROXY=https://proxy.golang.org,https://goproxy.cn,https://gocenter.io,https://goproxy.io,direct
 
-# Copy source code
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+
+# Download dependencies (this layer will be cached unless go.mod/go.sum change)
+# Using BuildKit cache mount for better performance
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download && \
+    go mod verify
+
+# Copy source code (this will invalidate cache only when source changes)
 COPY . .
 
 # Build the application
@@ -21,7 +33,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o go-backend-servic
 FROM alpine:latest
 
 # Install ca-certificates for HTTPS requests
-RUN apk --no-cache add ca-certificates
+RUN rm -rf /var/cache/apk/* /etc/apk/cache/* && \
+    (apk update --no-cache || \
+     (sed -i 's/dl-cdn.alpinelinux.org/mirror.yandex.ru\/mirrors\/alpine/g' /etc/apk/repositories && \
+      apk update --no-cache)) && \
+    apk --no-cache add ca-certificates
 
 # Create non-root user
 RUN addgroup -g 1000 appuser && \
