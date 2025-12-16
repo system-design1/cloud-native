@@ -19,7 +19,7 @@ You are a senior Go backend engineer. I want you to implement **OpenTelemetry** 
 2. **Create Traces for All API Endpoints**:
    - Ensure that all endpoints (`/hello`, `/delayed-hello`, etc.) are properly traced with spans that capture the duration and other relevant metadata of the request.
 
-3. **Tempo Integration (Optional)**:
+3. **Tempo Integration**:
    - If needed, integrate **Tempo** for trace storage.
    - Ensure that the traces collected by OpenTelemetry are sent to Tempo for visualization and analysis.
 

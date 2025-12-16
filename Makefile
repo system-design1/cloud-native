@@ -5,6 +5,8 @@ DOCKER_TAG := latest
 GO := go
 DOCKER := docker
 DOCKER_COMPOSE := docker-compose
+BIN_DIR := bin
+BINARY := $(BIN_DIR)/$(PROJECT_NAME)
 
 # Default target
 .PHONY: help
@@ -14,29 +16,120 @@ help: ## Display this help message
 
 # Build the Go project
 .PHONY: build
-build: ## Build the Go project and output the binary
+build: ## Build the Go project and output the binary to bin/
 	@echo "Building $(PROJECT_NAME)..."
-	@$(GO) build -o $(PROJECT_NAME) ./cmd/server
-	@echo "Build completed: $(PROJECT_NAME)"
+	@mkdir -p $(BIN_DIR)
+	@$(GO) build -o $(BINARY) ./cmd/server
+	@echo "Build completed: $(BINARY)"
 
-# Run the application locally
+# Local Development Setup
+.PHONY: dev-setup
+dev-setup: ## Setup local development environment (create .env from env.example)
+	@if [ ! -f .env ]; then \
+		echo "Creating .env file from env.example..."; \
+		cp env.example .env; \
+		echo ".env file created. Please update DB_HOST to 'localhost' for local development."; \
+		echo "Current DB_HOST in .env: $$(grep DB_HOST .env || echo 'DB_HOST=localhost')"; \
+		sed -i 's/^DB_HOST=postgres/DB_HOST=localhost/' .env 2>/dev/null || \
+		sed -i '' 's/^DB_HOST=postgres/DB_HOST=localhost/' .env 2>/dev/null || true; \
+		echo "Setup completed!"; \
+	else \
+		echo ".env file already exists. Skipping..."; \
+	fi
+
+# Start local development database
+.PHONY: dev-db-up
+dev-db-up: ## Start PostgreSQL database for local development
+	@echo "Starting local development database..."
+	@$(DOCKER_COMPOSE) -f docker-compose.dev.yml up -d
+	@echo "Waiting for database to be ready..."
+	@timeout=30; \
+	while [ $$timeout -gt 0 ]; do \
+		if docker exec go-backend-postgres-dev pg_isready -U postgres >/dev/null 2>&1; then \
+			echo "Database is ready!"; \
+			break; \
+		fi; \
+		sleep 1; \
+		timeout=$$((timeout-1)); \
+	done; \
+	if [ $$timeout -eq 0 ]; then \
+		echo "Warning: Database might not be ready yet."; \
+	fi
+
+# Stop local development database
+.PHONY: dev-db-down
+dev-db-down: ## Stop local development database
+	@echo "Stopping local development database..."
+	@$(DOCKER_COMPOSE) -f docker-compose.dev.yml down
+	@echo "Database stopped"
+
+# Run the application locally (requires .env file and database)
 .PHONY: run
 run: ## Run the Go project directly without Docker using go run
-	@echo "Running $(PROJECT_NAME)..."
-	@$(GO) run ./cmd/server
+	@if [ ! -f .env ]; then \
+		echo "Error: .env file not found. Run 'make dev-setup' first."; \
+		exit 1; \
+	fi
+	@echo "Running $(PROJECT_NAME) locally..."
+	@echo "Make sure database is running (use 'make dev-db-up' if needed)"
+	@export $$(cat .env | xargs) && $(GO) run ./cmd/server
+
+# Run with hot reload using air (if installed)
+.PHONY: dev-run
+dev-run: ## Run the app locally with hot reload using air (requires air: go install github.com/cosmtrek/air@latest)
+	@if [ ! -f .env ]; then \
+		echo "Error: .env file not found. Run 'make dev-setup' first."; \
+		exit 1; \
+	fi
+	@if command -v air >/dev/null 2>&1; then \
+		echo "Running $(PROJECT_NAME) with hot reload (air)..."; \
+		echo "Make sure database is running (use 'make dev-db-up' if needed)"; \
+		export $$(cat .env | xargs) && air; \
+	else \
+		echo "air is not installed. Installing..."; \
+		$(GO) install github.com/cosmtrek/air@latest; \
+		echo "Running $(PROJECT_NAME) with hot reload (air)..."; \
+		echo "Make sure database is running (use 'make dev-db-up' if needed)"; \
+		export $$(cat .env | xargs) && $$(go env GOPATH)/bin/air; \
+	fi
+
+# Complete local development setup: database + app
+.PHONY: dev
+dev: dev-setup dev-db-up ## Complete local dev setup: create .env, start database, and show instructions
+	@echo ""
+	@echo "=========================================="
+	@echo "Local development environment is ready!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Database is running on: localhost:5432"
+	@echo ""
+	@echo "To run the application:"
+	@echo "  make run          - Run once"
+	@echo "  make dev-run      - Run with hot reload (air)"
+	@echo ""
+	@echo "To stop database:"
+	@echo "  make dev-db-down"
+	@echo ""
 
 # Build Docker image
 .PHONY: docker-build
-docker-build: ## Build the Docker image for the Go project
+docker-build: ## Build the Docker image for the Go project (with BuildKit caching)
 	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
-	@$(DOCKER) build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@DOCKER_BUILDKIT=1 $(DOCKER) build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@echo "Docker image built successfully"
+
+# Build Docker image without cache
+.PHONY: docker-build-no-cache
+docker-build-no-cache: ## Build the Docker image without using cache
+	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG) without cache..."
+	@DOCKER_BUILDKIT=1 $(DOCKER) build --no-cache -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 	@echo "Docker image built successfully"
 
 # Start Docker Compose services
 .PHONY: docker-up
-docker-up: ## Start the Docker containers with docker-compose up -d
-	@echo "Starting Docker containers..."
-	@$(DOCKER_COMPOSE) up -d
+docker-up: ## Start the Docker containers with docker-compose up -d (builds with BuildKit for better caching)
+	@echo "Starting Docker containers with BuildKit..."
+	@DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) up -d --build
 	@echo "Docker containers started"
 
 # Stop Docker Compose services
@@ -55,7 +148,7 @@ docker-logs: ## View logs from Docker containers
 .PHONY: clean
 clean: ## Clean the project by removing the generated binary file
 	@echo "Cleaning project..."
-	@rm -f $(PROJECT_NAME)
+	@rm -f $(BINARY) $(PROJECT_NAME)
 	@echo "Clean completed"
 
 # Run Go tests

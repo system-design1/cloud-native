@@ -7,6 +7,10 @@
 go-backend-service
 /server
 
+# Build output directory (keep .gitkeep)
+bin/*
+!bin/.gitkeep
+
 # Test binary, built with `go test -c`
 *.test
 
