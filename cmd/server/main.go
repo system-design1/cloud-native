@@ -11,6 +11,8 @@ import (
 
 	"go-backend-service/internal/config"
 	"go-backend-service/internal/logger"
+	"go-backend-service/internal/middleware"
+	apperrors "go-backend-service/pkg/errors"
 
 	"github.com/gin-gonic/gin"
 )
@@ -36,10 +38,18 @@ func main() {
 	// Create Gin router
 	router := gin.New()
 
-	// Middleware
+	// Middleware chain (order matters!)
+	// 1. Recovery middleware (catches panics)
 	router.Use(gin.Recovery())
-	router.Use(correlationIDMiddleware())
-	router.Use(loggingMiddleware())
+	
+	// 2. Correlation ID middleware (must be before logging)
+	router.Use(middleware.CorrelationIDMiddleware())
+	
+	// 3. Request/Response logging middleware
+	router.Use(middleware.RequestResponseLoggingMiddleware())
+	
+	// 4. Global error handler middleware (must be last)
+	router.Use(middleware.ErrorHandlerMiddleware())
 
 	// Health check route
 	router.GET("/health", func(c *gin.Context) {
@@ -53,6 +63,12 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Hello, World!",
 		})
+	})
+
+	// Test error route (for testing error handling)
+	router.GET("/test-error", func(c *gin.Context) {
+		middleware.ErrorHandler(c, apperrors.ErrBadRequest("This is a test error"))
+		c.Abort()
 	})
 
 	// Create HTTP server
@@ -90,44 +106,4 @@ func main() {
 	}
 
 	log.Info().Msg("Server exited")
-}
-
-// correlationIDMiddleware adds correlation ID to requests
-func correlationIDMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		correlationID := c.GetHeader("X-Correlation-ID")
-		if correlationID == "" {
-			correlationID = logger.GenerateCorrelationID()
-		}
-		c.Set("correlation_id", correlationID)
-		c.Header("X-Correlation-ID", correlationID)
-		c.Next()
-	}
-}
-
-// loggingMiddleware logs HTTP requests
-func loggingMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		start := time.Now()
-		path := c.Request.URL.Path
-		raw := c.Request.URL.RawQuery
-
-		c.Next()
-
-		correlationID, _ := c.Get("correlation_id")
-		log := logger.Get(fmt.Sprintf("%v", correlationID))
-
-		latency := time.Since(start)
-		status := c.Writer.Status()
-
-		log.Info().
-			Int("status", status).
-			Str("method", c.Request.Method).
-			Str("path", path).
-			Str("query", raw).
-			Dur("latency", latency).
-			Str("ip", c.ClientIP()).
-			Str("user_agent", c.Request.UserAgent()).
-			Msg("HTTP request")
-	}
 }
