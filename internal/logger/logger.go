@@ -20,6 +20,8 @@ func Init() {
 	zerolog.MessageFieldName = "message"
 
 	// Use JSON format for all logs (structured logging)
+	// Output to stdout with JSON format (always JSON, never console format)
+	// zerolog.New() always outputs JSON format by default
 	globalLogger = zerolog.New(os.Stdout).
 		With().
 		Timestamp().
@@ -31,7 +33,7 @@ func Init() {
 		logLevel = "info" // default level
 	}
 	SetLevel(logLevel)
-	
+
 	// Log the initialization (this will only show if level allows it)
 	globalLogger.Info().
 		Str("log_level", logLevel).

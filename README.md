@@ -11,6 +11,8 @@
 - **دیتابیس**: PostgreSQL
 - **احراز هویت**: JWT
 - **لاگینگ**: Zerolog (Structured JSON Logging with Correlation IDs)
+- **Tracing**: OpenTelemetry با پشتیبانی از Tempo
+- **Metrics**: Prometheus (آماده برای پیاده‌سازی)
 - **پیکربندی**: استفاده از environment variables با validation
 
 ## ساختار پروژه
@@ -138,6 +140,13 @@ make docker-up     # راه‌اندازی Docker containers
 make docker-down   # توقف Docker containers
 make docker-logs   # مشاهده لاگ‌های Docker
 
+# Observability (OpenTelemetry, Tempo, Prometheus, Grafana)
+make observability-up    # راه‌اندازی تمام observability stack
+make observability-down  # توقف observability stack
+make tempo-up            # راه‌اندازی Tempo + Jaeger
+make prometheus-up       # راه‌اندازی Prometheus
+make grafana-up          # راه‌اندازی Grafana
+
 # Utilities
 make clean         # پاکسازی فایل‌های build
 make fmt           # فرمت کردن کد
@@ -189,7 +198,42 @@ go test ./...
 این پروژه از Zerolog برای لاگینگ استفاده می‌کند و شامل:
 - Structured JSON logging
 - Correlation IDs برای ردیابی درخواست‌ها
+- Trace ID و Span ID در logs (با OpenTelemetry)
 - Log levels قابل تنظیم
+
+## Observability (Tracing, Metrics, Logs)
+
+این پروژه شامل پشتیبانی کامل از observability است:
+
+- **OpenTelemetry Tracing**: برای distributed tracing
+- **Tempo**: Backend برای ذخیره traces
+- **Jaeger UI**: برای visualization traces
+- **Prometheus**: برای metrics collection
+- **Grafana**: برای visualization و dashboards
+
+### راهنمای کامل Observability
+
+برای راهنمای کامل و مثال‌های کاربردی، به [OBSERVABILITY.md](./OBSERVABILITY.md) مراجعه کنید.
+
+**راه‌اندازی سریع:**
+
+```bash
+# راه‌اندازی تمام observability stack
+make observability-up
+
+# تنظیم environment variables برای Tempo
+export OTEL_TRACING_ENABLED=true
+export OTEL_TEMPO_ENABLED=true
+export OTEL_TEMPO_ENDPOINT=localhost:4318
+
+# اجرای API
+make run
+
+# دسترسی به رابط‌های کاربری:
+# - Jaeger UI: http://localhost:16686
+# - Prometheus: http://localhost:9090
+# - Grafana: http://localhost:3000
+```
 
 ## مجوز
 
