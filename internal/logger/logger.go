@@ -2,6 +2,7 @@ package logger
 
 import (
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -23,6 +24,18 @@ func Init() {
 		With().
 		Timestamp().
 		Logger()
+
+	// Set log level from environment variable
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info" // default level
+	}
+	SetLevel(logLevel)
+	
+	// Log the initialization (this will only show if level allows it)
+	globalLogger.Info().
+		Str("log_level", logLevel).
+		Msg("Logger initialized with structured JSON logging")
 }
 
 // Get returns the global logger instance with optional correlation ID
@@ -40,16 +53,26 @@ func GenerateCorrelationID() string {
 }
 
 // SetLevel sets the logging level
+// Supported levels: trace, debug, info, warn, error, fatal, panic, disabled
 func SetLevel(level string) {
+	level = strings.ToLower(strings.TrimSpace(level))
 	switch level {
+	case "trace":
+		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	case "debug":
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	case "info":
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	case "warn":
+	case "warn", "warning":
 		zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	case "error":
 		zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+	case "fatal":
+		zerolog.SetGlobalLevel(zerolog.FatalLevel)
+	case "panic":
+		zerolog.SetGlobalLevel(zerolog.PanicLevel)
+	case "disabled", "none", "off":
+		zerolog.SetGlobalLevel(zerolog.Disabled)
 	default:
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}

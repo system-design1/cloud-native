@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:
@@ -51,6 +49,9 @@ services:
       
       # Application Configuration
       GIN_MODE: ${GIN_MODE:-release}
+      
+      # Logging Configuration
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
