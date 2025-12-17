@@ -22,8 +22,29 @@ func RequestResponseLoggingMiddleware() gin.HandlerFunc {
 			correlationID = ""
 		}
 
+		// Get trace ID and span ID from context (set by tracing middleware)
+		traceIDValue, traceExists := c.Get("trace_id")
+		var traceID string
+		if traceExists {
+			traceID = traceIDValue.(string)
+		}
+
+		spanIDValue, spanExists := c.Get("span_id")
+		var spanID string
+		if spanExists {
+			spanID = spanIDValue.(string)
+		}
+
 		// Create logger with correlation ID (logger.Get already adds correlation_id to logs)
 		log := logger.Get(correlationID)
+
+		// Add trace ID and span ID to logger if available
+		if traceID != "" {
+			log = log.With().Str("trace_id", traceID).Logger()
+		}
+		if spanID != "" {
+			log = log.With().Str("span_id", spanID).Logger()
+		}
 
 		// Extract request details
 		method := c.Request.Method

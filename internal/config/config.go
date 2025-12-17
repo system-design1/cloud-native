@@ -12,14 +12,31 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	JWT      JWTConfig
+	App      AppConfig
+	Tracing  TracingConfig
+}
+
+// AppConfig holds application-related configuration
+type AppConfig struct {
+	GinMode string `koanf:"gin_mode"`
+}
+
+// TracingConfig holds OpenTelemetry tracing configuration
+type TracingConfig struct {
+	Enabled        bool   `koanf:"enabled"`
+	ServiceName    string `koanf:"service_name"`
+	ServiceVersion string `koanf:"service_version"`
+	TempoEndpoint  string `koanf:"tempo_endpoint"`
+	TempoEnabled   bool   `koanf:"tempo_enabled"`
 }
 
 // ServerConfig holds server-related configuration
 type ServerConfig struct {
-	Host         string        `koanf:"host"`
-	Port         int           `koanf:"port"`
-	ReadTimeout  time.Duration `koanf:"read_timeout"`
-	WriteTimeout time.Duration `koanf:"write_timeout"`
+	Host                    string        `koanf:"host"`
+	Port                    int           `koanf:"port"`
+	ReadTimeout             time.Duration `koanf:"read_timeout"`
+	WriteTimeout            time.Duration `koanf:"write_timeout"`
+	GracefulShutdownTimeout time.Duration `koanf:"graceful_shutdown_timeout"`
 }
 
 // DatabaseConfig holds database-related configuration
@@ -62,6 +79,16 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to load JWT config: %w", err)
 	}
 
+	// Load and validate application configuration
+	if err := loadAppConfig(cfg); err != nil {
+		return nil, fmt.Errorf("failed to load app config: %w", err)
+	}
+
+	// Load and validate tracing configuration
+	if err := loadTracingConfig(cfg); err != nil {
+		return nil, fmt.Errorf("failed to load tracing config: %w", err)
+	}
+
 	globalConfig = cfg
 	return cfg, nil
 }
@@ -70,12 +97,12 @@ func Load() (*Config, error) {
 func loadServerConfig(cfg *Config) error {
 	host := os.Getenv("SERVER_HOST")
 	if host == "" {
-		host = "0.0.0.0"
+		return fmt.Errorf("SERVER_HOST is required")
 	}
 
 	portStr := os.Getenv("SERVER_PORT")
 	if portStr == "" {
-		portStr = "8080"
+		return fmt.Errorf("SERVER_PORT is required")
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
@@ -84,7 +111,7 @@ func loadServerConfig(cfg *Config) error {
 
 	readTimeoutStr := os.Getenv("SERVER_READ_TIMEOUT")
 	if readTimeoutStr == "" {
-		readTimeoutStr = "15s"
+		return fmt.Errorf("SERVER_READ_TIMEOUT is required")
 	}
 	readTimeout, err := time.ParseDuration(readTimeoutStr)
 	if err != nil {
@@ -93,18 +120,28 @@ func loadServerConfig(cfg *Config) error {
 
 	writeTimeoutStr := os.Getenv("SERVER_WRITE_TIMEOUT")
 	if writeTimeoutStr == "" {
-		writeTimeoutStr = "15s"
+		return fmt.Errorf("SERVER_WRITE_TIMEOUT is required")
 	}
 	writeTimeout, err := time.ParseDuration(writeTimeoutStr)
 	if err != nil {
 		return fmt.Errorf("invalid SERVER_WRITE_TIMEOUT: %w", err)
 	}
 
+	gracefulShutdownTimeoutStr := os.Getenv("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT")
+	if gracefulShutdownTimeoutStr == "" {
+		return fmt.Errorf("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT is required")
+	}
+	gracefulShutdownTimeout, err := time.ParseDuration(gracefulShutdownTimeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid SERVER_GRACEFUL_SHUTDOWN_TIMEOUT: %w", err)
+	}
+
 	cfg.Server = ServerConfig{
-		Host:         host,
-		Port:         port,
-		ReadTimeout:  readTimeout,
-		WriteTimeout: writeTimeout,
+		Host:                    host,
+		Port:                    port,
+		ReadTimeout:             readTimeout,
+		WriteTimeout:            writeTimeout,
+		GracefulShutdownTimeout: gracefulShutdownTimeout,
 	}
 
 	return nil
@@ -114,12 +151,12 @@ func loadServerConfig(cfg *Config) error {
 func loadDatabaseConfig(cfg *Config) error {
 	host := os.Getenv("DB_HOST")
 	if host == "" {
-		host = "localhost"
+		return fmt.Errorf("DB_HOST is required")
 	}
 
 	portStr := os.Getenv("DB_PORT")
 	if portStr == "" {
-		portStr = "5432"
+		return fmt.Errorf("DB_PORT is required")
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
@@ -143,7 +180,7 @@ func loadDatabaseConfig(cfg *Config) error {
 
 	sslMode := os.Getenv("DB_SSLMODE")
 	if sslMode == "" {
-		sslMode = "disable"
+		return fmt.Errorf("DB_SSLMODE is required")
 	}
 
 	cfg.Database = DatabaseConfig{
@@ -167,12 +204,12 @@ func loadJWTConfig(cfg *Config) error {
 
 	refreshSecret := os.Getenv("JWT_REFRESH_SECRET")
 	if refreshSecret == "" {
-		refreshSecret = secretKey // Fallback to secret key if not provided
+		return fmt.Errorf("JWT_REFRESH_SECRET is required")
 	}
 
 	expirationStr := os.Getenv("JWT_EXPIRATION")
 	if expirationStr == "" {
-		expirationStr = "24h"
+		return fmt.Errorf("JWT_EXPIRATION is required")
 	}
 	expiration, err := time.ParseDuration(expirationStr)
 	if err != nil {
@@ -183,6 +220,50 @@ func loadJWTConfig(cfg *Config) error {
 		SecretKey:     secretKey,
 		RefreshSecret: refreshSecret,
 		Expiration:    expiration,
+	}
+
+	return nil
+}
+
+// loadAppConfig loads and validates application configuration
+func loadAppConfig(cfg *Config) error {
+	ginMode := os.Getenv("GIN_MODE")
+	if ginMode == "" {
+		return fmt.Errorf("GIN_MODE is required")
+	}
+
+	cfg.App = AppConfig{
+		GinMode: ginMode,
+	}
+
+	return nil
+}
+
+// loadTracingConfig loads and validates tracing configuration
+func loadTracingConfig(cfg *Config) error {
+	enabledStr := os.Getenv("OTEL_TRACING_ENABLED")
+	enabled := enabledStr == "true" || enabledStr == "1"
+
+	serviceName := os.Getenv("OTEL_SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "go-backend-service"
+	}
+
+	serviceVersion := os.Getenv("OTEL_SERVICE_VERSION")
+	if serviceVersion == "" {
+		serviceVersion = "1.0.0"
+	}
+
+	tempoEndpoint := os.Getenv("OTEL_TEMPO_ENDPOINT")
+	tempoEnabledStr := os.Getenv("OTEL_TEMPO_ENABLED")
+	tempoEnabled := tempoEnabledStr == "true" || tempoEnabledStr == "1"
+
+	cfg.Tracing = TracingConfig{
+		Enabled:        enabled,
+		ServiceName:    serviceName,
+		ServiceVersion: serviceVersion,
+		TempoEndpoint:  tempoEndpoint,
+		TempoEnabled:   tempoEnabled,
 	}
 
 	return nil

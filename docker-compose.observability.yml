@@ -1,0 +1,91 @@
+services:
+  # Tempo - Distributed Tracing Backend
+  tempo:
+    image: grafana/tempo:latest
+    container_name: go-backend-tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "3200:3200"   # Tempo API
+    volumes:
+      - tempo_data:/var/tempo
+      - ./configs/tempo.yaml:/etc/tempo/tempo.yaml:ro
+    networks:
+      - observability-network
+    restart: unless-stopped
+
+  # Jaeger UI - Trace Visualization (connects to Tempo)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: go-backend-jaeger
+    environment:
+      - SPAN_STORAGE_TYPE=grpc-plugin
+      - GRPC_STORAGE_PLUGIN_BINARY=/etc/jaeger/plugins/jaeger-tempo/main
+      - GRPC_STORAGE_PLUGIN_CONFIGURATION_FILE=/etc/jaeger/plugins/jaeger-tempo/config.yaml
+      - QUERY_BASE_PATH=/
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "16685:16685"  # Jaeger gRPC
+    depends_on:
+      - tempo
+    networks:
+      - observability-network
+    restart: unless-stopped
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: go-backend-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"  # Prometheus UI
+    volumes:
+      - prometheus_data:/prometheus
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - observability-network
+      - app-network
+    restart: unless-stopped
+
+  # Grafana - Visualization Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: go-backend-grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - "3000:3000"  # Grafana UI
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - tempo
+    networks:
+      - observability-network
+    restart: unless-stopped
+
+volumes:
+  tempo_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  observability-network:
+    driver: bridge
+  app-network:
+    external: true
+    name: sdgo_app-network
+

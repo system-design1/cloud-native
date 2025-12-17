@@ -3,6 +3,7 @@
 
 ## Overview
 You are a senior Go backend engineer. I want you to create the following API and endpoints for the Go project:
+consider that before start coding for each section, check it because it maybe to implement before and do not need to do the task
 
 ### Task:
 

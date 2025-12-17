@@ -12,13 +12,19 @@ func SetupMiddleware(router *gin.Engine) {
 	// 1. Recovery middleware (catches panics)
 	router.Use(gin.Recovery())
 
-	// 2. Correlation ID middleware (must be before logging)
+	// 2. OpenTelemetry tracing middleware (must be early to capture all spans)
+	router.Use(middleware.TracingMiddleware())
+
+	// 3. Correlation ID middleware (must be before tracing context and logging)
 	router.Use(middleware.CorrelationIDMiddleware())
 
-	// 3. Request/Response logging middleware
+	// 4. Tracing context middleware (extracts trace/span IDs and adds to context)
+	router.Use(middleware.TracingContextMiddleware())
+
+	// 5. Request/Response logging middleware (includes trace/span IDs in logs)
 	router.Use(middleware.RequestResponseLoggingMiddleware())
 
-	// 4. Global error handler middleware (must be last)
+	// 6. Global error handler middleware (must be last)
 	router.Use(middleware.ErrorHandlerMiddleware())
 }
 

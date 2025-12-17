@@ -72,7 +72,7 @@ run: ## Run the Go project directly without Docker using go run
 	fi
 	@echo "Running $(PROJECT_NAME) locally..."
 	@echo "Make sure database is running (use 'make dev-db-up' if needed)"
-	@export $$(cat .env | xargs) && $(GO) run ./cmd/server
+	@export $$(grep -v '^[[:space:]]*#' .env | grep -v '^[[:space:]]*$$' | xargs) && $(GO) run ./cmd/server
 
 # Run with hot reload using air (if installed)
 .PHONY: dev-run
@@ -84,13 +84,13 @@ dev-run: ## Run the app locally with hot reload using air (requires air: go inst
 	@if command -v air >/dev/null 2>&1; then \
 		echo "Running $(PROJECT_NAME) with hot reload (air)..."; \
 		echo "Make sure database is running (use 'make dev-db-up' if needed)"; \
-		export $$(cat .env | xargs) && air; \
+		export $$(grep -v '^[[:space:]]*#' .env | grep -v '^[[:space:]]*$$' | xargs) && air; \
 	else \
 		echo "air is not installed. Installing..."; \
 		$(GO) install github.com/cosmtrek/air@latest; \
 		echo "Running $(PROJECT_NAME) with hot reload (air)..."; \
 		echo "Make sure database is running (use 'make dev-db-up' if needed)"; \
-		export $$(cat .env | xargs) && $$(go env GOPATH)/bin/air; \
+		export $$(grep -v '^[[:space:]]*#' .env | grep -v '^[[:space:]]*$$' | xargs) && $$(go env GOPATH)/bin/air; \
 	fi
 
 # Complete local development setup: database + app
@@ -212,4 +212,98 @@ tidy: ## Tidy Go modules
 # Full setup: download dependencies, build, and test
 .PHONY: setup
 setup: deps fmt build test ## Full setup: download dependencies, format, build, and test
+
+# ============================================
+# Observability (OpenTelemetry, Tempo, Prometheus)
+# ============================================
+
+# Start observability stack (Tempo, Jaeger, Prometheus, Grafana)
+.PHONY: observability-up
+observability-up: ## Start observability stack (Tempo, Jaeger, Prometheus, Grafana)
+	@echo "Starting observability stack..."
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d
+	@echo ""
+	@echo "=========================================="
+	@echo "Observability stack started!"
+	@echo "=========================================="
+	@echo "Jaeger UI:      http://localhost:16686"
+	@echo "Prometheus:     http://localhost:9090"
+	@echo "Grafana:        http://localhost:3000 (admin/admin)"
+	@echo "Tempo API:      http://localhost:3200"
+	@echo ""
+	@echo "To stop: make observability-down"
+
+# Stop observability stack
+.PHONY: observability-down
+observability-down: ## Stop observability stack
+	@echo "Stopping observability stack..."
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml down
+	@echo "Observability stack stopped"
+
+# View observability logs
+.PHONY: observability-logs
+observability-logs: ## View observability stack logs
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml logs -f
+
+# Start Tempo only
+.PHONY: tempo-up
+tempo-up: ## Start Tempo tracing backend only
+	@echo "Starting Tempo..."
+	@echo "Creating app-network if it doesn't exist..."
+	@docker network create app-network 2>/dev/null || true
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d tempo jaeger
+	@echo ""
+	@echo "=========================================="
+	@echo "Tempo started!"
+	@echo "=========================================="
+	@echo "Jaeger UI:      http://localhost:16686"
+	@echo "Tempo API:      http://localhost:3200"
+	@echo "OTLP HTTP:      http://localhost:4318"
+	@echo "OTLP gRPC:      localhost:4317"
+	@echo ""
+
+# Stop Tempo
+.PHONY: tempo-down
+tempo-down: ## Stop Tempo
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml stop tempo jaeger
+
+# Start Prometheus only
+.PHONY: prometheus-up
+prometheus-up: ## Start Prometheus metrics collection only
+	@echo "Starting Prometheus..."
+	@echo "Creating app-network if it doesn't exist..."
+	@docker network create app-network 2>/dev/null || true
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d prometheus
+	@echo ""
+	@echo "=========================================="
+	@echo "Prometheus started!"
+	@echo "=========================================="
+	@echo "Prometheus UI:  http://localhost:9090"
+	@echo ""
+
+# Stop Prometheus
+.PHONY: prometheus-down
+prometheus-down: ## Stop Prometheus
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml stop prometheus
+
+# Start Grafana only
+.PHONY: grafana-up
+grafana-up: ## Start Grafana visualization only
+	@echo "Starting Grafana..."
+	@echo "Creating app-network if it doesn't exist..."
+	@docker network create app-network 2>/dev/null || true
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d grafana
+	@echo ""
+	@echo "=========================================="
+	@echo "Grafana started!"
+	@echo "=========================================="
+	@echo "Grafana UI:     http://localhost:3000"
+	@echo "Username:       admin"
+	@echo "Password:       admin"
+	@echo ""
+
+# Stop Grafana
+.PHONY: grafana-down
+grafana-down: ## Stop Grafana
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml stop grafana
 
