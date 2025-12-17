@@ -34,12 +34,14 @@ func New(cfg *config.Config, handler http.Handler) *Server {
 // Start starts the server in a goroutine
 func (s *Server) Start() error {
 	go func() {
-		s.log.Info().
+		s.log.Debug().
 			Str("addr", s.httpServer.Addr).
-			Msg("Starting HTTP server")
+			Dur("read_timeout", s.httpServer.ReadTimeout).
+			Dur("write_timeout", s.httpServer.WriteTimeout).
+			Msg("Starting HTTP server listener")
 
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.log.Fatal().Err(err).Msg("Failed to start server")
+			s.log.Fatal().Err(err).Msg("HTTP server failed to start")
 		}
 	}()
 	return nil
@@ -47,8 +49,18 @@ func (s *Server) Start() error {
 
 // Shutdown gracefully shuts down the server with a timeout
 func (s *Server) Shutdown(ctx context.Context) error {
-	s.log.Info().Msg("Shutting down server...")
-	return s.httpServer.Shutdown(ctx)
+	s.log.Info().
+		Str("addr", s.httpServer.Addr).
+		Msg("Initiating server shutdown")
+	
+	err := s.httpServer.Shutdown(ctx)
+	if err != nil {
+		s.log.Error().Err(err).Msg("Error during server shutdown")
+		return err
+	}
+	
+	s.log.Info().Msg("Server shutdown completed successfully")
+	return nil
 }
 
 // ShutdownWithTimeout gracefully shuts down the server with a default timeout
