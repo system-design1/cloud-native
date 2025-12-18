@@ -8,6 +8,10 @@ DOCKER_COMPOSE := docker-compose
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/$(PROJECT_NAME)
 
+# BuildKit settings - enable for faster builds
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 # Default target
 .PHONY: help
 help: ## Display this help message
@@ -111,26 +115,43 @@ dev: dev-setup dev-db-up ## Complete local dev setup: create .env, start databas
 	@echo "  make dev-db-down"
 	@echo ""
 
-# Build Docker image
+# Build Docker image (only rebuilds if needed)
 .PHONY: docker-build
-docker-build: ## Build the Docker image for the Go project (with BuildKit caching)
+docker-build: ## Build the Docker image (only rebuilds if Dockerfile or code changed)
 	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
-	@DOCKER_BUILDKIT=1 $(DOCKER) build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@echo "Note: Docker will use cache if nothing changed. Use 'make docker-build-rebuild' to force rebuild."
+	@$(DOCKER) build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 	@echo "Docker image built successfully"
+
+# Force rebuild Docker image
+.PHONY: docker-build-rebuild
+docker-build-rebuild: ## Force rebuild Docker image without cache
+	@echo "Force rebuilding Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
+	@$(DOCKER) build --no-cache -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@echo "Docker image rebuilt successfully"
 
 # Build Docker image without cache
 .PHONY: docker-build-no-cache
 docker-build-no-cache: ## Build the Docker image without using cache
 	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG) without cache..."
-	@DOCKER_BUILDKIT=1 $(DOCKER) build --no-cache -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@$(DOCKER) build --no-cache --progress=plain -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 	@echo "Docker image built successfully"
 
-# Start Docker Compose services
+# Start Docker Compose services (skips rebuild if image exists)
 .PHONY: docker-up
-docker-up: ## Start the Docker containers with docker-compose up -d (builds with BuildKit for better caching)
-	@echo "Starting Docker containers with BuildKit..."
-	@DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 $(DOCKER_COMPOSE) up -d --build
+docker-up: ## Start the Docker containers (skips build if image exists, use docker-up-rebuild to force rebuild)
+	@echo "Starting Docker containers..."
+	@echo "Note: If image exists, it will start without rebuild. Use 'make docker-up-rebuild' to force rebuild."
+	@$(DOCKER_COMPOSE) up -d
 	@echo "Docker containers started"
+
+# Rebuild and start Docker Compose services (forces rebuild)
+.PHONY: docker-up-rebuild
+docker-up-rebuild: ## Force rebuild and start Docker containers
+	@echo "Force rebuilding Docker containers..."
+	@$(DOCKER_COMPOSE) build --no-cache
+	@$(DOCKER_COMPOSE) up -d
+	@echo "Docker containers rebuilt and started"
 
 # Stop Docker Compose services
 .PHONY: docker-down
@@ -226,11 +247,12 @@ observability-up: ## Start observability stack (Tempo, Jaeger, Prometheus, Grafa
 	@echo "=========================================="
 	@echo "Observability stack started!"
 	@echo "=========================================="
-	@echo "Jaeger UI:      http://localhost:16686"
+	@echo "Grafana:        http://localhost:3000 (admin/admin) - Recommended for traces"
+	@echo "Jaeger UI:      http://localhost:16686 (memory storage only)"
 	@echo "Prometheus:     http://localhost:9090"
-	@echo "Grafana:        http://localhost:3000 (admin/admin)"
 	@echo "Tempo API:      http://localhost:3200"
 	@echo ""
+	@echo "Note: Use Grafana to view traces from Tempo (Tempo datasource is pre-configured)"
 	@echo "To stop: make observability-down"
 
 # Stop observability stack
@@ -249,17 +271,16 @@ observability-logs: ## View observability stack logs
 .PHONY: tempo-up
 tempo-up: ## Start Tempo tracing backend only
 	@echo "Starting Tempo..."
-	@echo "Creating app-network if it doesn't exist..."
-	@docker network create app-network 2>/dev/null || true
 	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d tempo jaeger
 	@echo ""
 	@echo "=========================================="
 	@echo "Tempo started!"
 	@echo "=========================================="
-	@echo "Jaeger UI:      http://localhost:16686"
 	@echo "Tempo API:      http://localhost:3200"
 	@echo "OTLP HTTP:      http://localhost:4318"
 	@echo "OTLP gRPC:      localhost:4317"
+	@echo ""
+	@echo "Note: Start Grafana (make grafana-up) to view traces from Tempo"
 	@echo ""
 
 # Stop Tempo
@@ -271,8 +292,6 @@ tempo-down: ## Stop Tempo
 .PHONY: prometheus-up
 prometheus-up: ## Start Prometheus metrics collection only
 	@echo "Starting Prometheus..."
-	@echo "Creating app-network if it doesn't exist..."
-	@docker network create app-network 2>/dev/null || true
 	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d prometheus
 	@echo ""
 	@echo "=========================================="
@@ -290,8 +309,6 @@ prometheus-down: ## Stop Prometheus
 .PHONY: grafana-up
 grafana-up: ## Start Grafana visualization only
 	@echo "Starting Grafana..."
-	@echo "Creating app-network if it doesn't exist..."
-	@docker network create app-network 2>/dev/null || true
 	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d grafana
 	@echo ""
 	@echo "=========================================="
@@ -306,4 +323,3 @@ grafana-up: ## Start Grafana visualization only
 .PHONY: grafana-down
 grafana-down: ## Stop Grafana
 	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml stop grafana
-

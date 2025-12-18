@@ -4,6 +4,9 @@
 ## Overview
 You are a senior Go backend engineer. I want you to implement **Prometheus** metrics for the Go project to monitor the system’s performance and request metrics.
 
+> **Important:** Some Docker/Docker Compose work may already be done in previous stages.  
+> **First, audit the repository** and **only implement what is missing or incomplete**. If a requirement is already satisfied, do not redo it—just improve it if needed.
+
 ### Task:
 
 1. **Prometheus Metrics Setup**:

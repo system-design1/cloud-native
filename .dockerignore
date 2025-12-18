@@ -54,3 +54,5 @@ temp/
 # Dependencies (will be downloaded in container)
 vendor/
 
+# Observability configs (not needed in container)
+configs/

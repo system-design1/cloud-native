@@ -18,16 +18,19 @@ ENV GOPROXY=https://proxy.golang.org,https://goproxy.cn,https://gocenter.io,http
 COPY go.mod go.sum ./
 
 # Download dependencies (this layer will be cached unless go.mod/go.sum change)
-# Using BuildKit cache mount for better performance
+# Using BuildKit cache mount for better performance - cache will persist across builds
 RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
     go mod download && \
     go mod verify
 
 # Copy source code (this will invalidate cache only when source changes)
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o go-backend-service ./cmd/server
+# Build the application (using cache for go build cache as well)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o go-backend-service ./cmd/server
 
 # Final stage
 FROM alpine:latest

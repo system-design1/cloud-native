@@ -24,6 +24,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: go-backend-service:latest
     container_name: go-backend-api
     ports:
       - "${SERVER_PORT:-8080}:8080"
@@ -60,11 +61,16 @@ services:
       OTEL_SERVICE_VERSION: ${OTEL_SERVICE_VERSION:-1.0.0}
       OTEL_TEMPO_ENABLED: ${OTEL_TEMPO_ENABLED:-false}
       OTEL_TEMPO_ENDPOINT: ${OTEL_TEMPO_ENDPOINT:-}
+      # Ensure Tempo is disabled when using Jaeger
+      # OTEL_TEMPO_ENABLED=false
+      OTEL_JAEGER_ENABLED: ${OTEL_JAEGER_ENABLED:-true}
+      OTEL_JAEGER_ENDPOINT: ${OTEL_JAEGER_ENDPOINT:-jaeger:4318}
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - app-network
+      - observability-network
     restart: unless-stopped
 
 volumes:
@@ -73,5 +79,8 @@ volumes:
 
 networks:
   app-network:
+    driver: bridge
+  observability-network:
+    external: false
     driver: bridge
 

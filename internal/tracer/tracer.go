@@ -3,6 +3,7 @@ package tracer
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"go-backend-service/internal/config"
 
@@ -43,30 +44,76 @@ func Init(cfg *config.Config) error {
 		return fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	var exporter sdktrace.SpanExporter
+	var exporters []sdktrace.SpanExporter
 
-	// Setup exporter based on configuration
+	// Setup exporter(s) based on configuration
+	// Support multiple exporters (Tempo and/or Jaeger)
 	if cfg.Tracing.TempoEnabled && cfg.Tracing.TempoEndpoint != "" {
 		// Use OTLP HTTP exporter for Tempo
-		exporter, err = otlptracehttp.New(ctx,
+		tempoExporter, err := otlptracehttp.New(ctx,
 			otlptracehttp.WithEndpoint(cfg.Tracing.TempoEndpoint),
 			otlptracehttp.WithInsecure(), // Use WithInsecure for development, use WithTLSClientConfig for production
 		)
 		if err != nil {
-			return fmt.Errorf("failed to create OTLP exporter: %w", err)
+			return fmt.Errorf("failed to create Tempo OTLP exporter: %w", err)
 		}
-	} else {
-		// Use console exporter for development (prints to stdout)
-		// In production, you would use OTLP exporter
-		exporter = &consoleExporter{}
+		exporters = append(exporters, tempoExporter)
 	}
 
-	// Create tracer provider
-	tracerProvider = sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+	if cfg.Tracing.JaegerEnabled && cfg.Tracing.JaegerEndpoint != "" {
+		// Parse Jaeger endpoint - support both OTLP format (host:port) and HTTP format (http://host:port/path)
+		jaegerEndpoint := cfg.Tracing.JaegerEndpoint
+		
+		// If endpoint starts with http:// or https://, extract host:port
+		if parsedURL, err := url.Parse(jaegerEndpoint); err == nil && (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
+			jaegerEndpoint = parsedURL.Host
+		}
+		
+		// Replace localhost with jaeger for Docker Compose environments
+		// From inside a container, localhost refers to the container itself, not the host
+		// So we need to use the service name "jaeger" to connect to Jaeger container
+		// Check if endpoint contains localhost (with or without port)
+		if jaegerEndpoint == "localhost" || 
+		   jaegerEndpoint == "localhost:4320" || 
+		   jaegerEndpoint == "localhost:4318" ||
+		   (len(jaegerEndpoint) > 9 && jaegerEndpoint[:9] == "localhost:") {
+			// Replace localhost with jaeger and use port 4318 (OTLP HTTP port inside container)
+			jaegerEndpoint = "jaeger:4318"
+		} else if jaegerEndpoint == "" || jaegerEndpoint == "jaeger" {
+			// Default to OTLP port
+			jaegerEndpoint = "jaeger:4318"
+		}
+		
+		// Log the final endpoint for debugging (remove in production)
+		// fmt.Printf("DEBUG: Jaeger endpoint configured as: %s\n", jaegerEndpoint)
+		
+		jaegerExporter, err := otlptracehttp.New(ctx,
+			otlptracehttp.WithEndpoint(jaegerEndpoint),
+			otlptracehttp.WithInsecure(), // Use WithInsecure for development
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create Jaeger OTLP exporter: %w", err)
+		}
+		exporters = append(exporters, jaegerExporter)
+	}
+
+	// If no exporters configured, use console exporter
+	if len(exporters) == 0 {
+		exporters = append(exporters, &consoleExporter{})
+	}
+
+	// Create tracer provider with all exporters
+	opts := []sdktrace.TracerProviderOption{
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.AlwaysSample()), // Sample all traces
-	)
+	}
+
+	// Add batchers for each exporter
+	for _, exporter := range exporters {
+		opts = append(opts, sdktrace.WithBatcher(exporter))
+	}
+
+	tracerProvider = sdktrace.NewTracerProvider(opts...)
 
 	// Set global tracer provider
 	otel.SetTracerProvider(tracerProvider)

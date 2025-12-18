@@ -74,9 +74,19 @@ docker-compose -f docker-compose.observability.yml logs -f tempo
 - **Jaeger UI**: http://localhost:16686
   - برای مشاهده و جستجوی traces
   - قابلیت جستجو بر اساس service name، operation name، tags و غیره
+  - **نکته**: Jaeger با memory storage اجرا می‌شود. برای مشاهده traces از Tempo، از Grafana استفاده کنید.
 
 - **Tempo API**: http://localhost:3200
-  - API endpoint برای query کردن traces
+  - API endpoint برای query کردن traces (نه UI)
+  - **نکته مهم**: Tempo خودش UI ندارد! برای مشاهده traces از **Grafana** استفاده کنید.
+  - Endpoint های مفید:
+    - `GET /api/search` - جستجوی traces
+    - `GET /api/traces/{traceID}` - دریافت trace با ID
+    - `GET /ready` - بررسی وضعیت Tempo
+
+- **Grafana**: http://localhost:3000 (بهترین گزینه برای مشاهده traces از Tempo)
+  - Tempo datasource از پیش تنظیم شده است
+  - می‌توانید traces را در Grafana مشاهده کنید
 
 ### تنظیمات Tempo
 
@@ -112,10 +122,16 @@ curl http://localhost:8080/hello
 curl http://localhost:8080/delayed-hello
 ```
 
-5. مشاهده traces در Jaeger UI:
-   - باز کردن http://localhost:16686
-   - انتخاب service: `go-backend-service`
-   - کلیک روی "Find Traces"
+5. مشاهده traces:
+   - **روش 1 (توصیه می‌شود)**: استفاده از Grafana
+     - باز کردن http://localhost:3000
+     - رفتن به "Explore" (منوی سمت چپ)
+     - انتخاب datasource: "Tempo"
+     - جستجوی traces
+   - **روش 2**: استفاده از Jaeger UI (فقط traces که مستقیماً به Jaeger ارسال می‌شوند)
+     - باز کردن http://localhost:16686
+     - انتخاب service: `go-backend-service`
+     - کلیک روی "Find Traces"
 
 ---
 
