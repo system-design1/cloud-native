@@ -28,6 +28,8 @@ type TracingConfig struct {
 	ServiceVersion string `koanf:"service_version"`
 	TempoEndpoint  string `koanf:"tempo_endpoint"`
 	TempoEnabled   bool   `koanf:"tempo_enabled"`
+	JaegerEndpoint string `koanf:"jaeger_endpoint"`
+	JaegerEnabled  bool   `koanf:"jaeger_enabled"`
 }
 
 // ServerConfig holds server-related configuration
@@ -258,12 +260,21 @@ func loadTracingConfig(cfg *Config) error {
 	tempoEnabledStr := os.Getenv("OTEL_TEMPO_ENABLED")
 	tempoEnabled := tempoEnabledStr == "true" || tempoEnabledStr == "1"
 
+	jaegerEndpoint := os.Getenv("OTEL_JAEGER_ENDPOINT")
+	if jaegerEndpoint == "" {
+		jaegerEndpoint = "localhost:4320" // Default to OTLP HTTP endpoint for local development
+	}
+	jaegerEnabledStr := os.Getenv("OTEL_JAEGER_ENABLED")
+	jaegerEnabled := jaegerEnabledStr == "true" || jaegerEnabledStr == "1"
+
 	cfg.Tracing = TracingConfig{
 		Enabled:        enabled,
 		ServiceName:    serviceName,
 		ServiceVersion: serviceVersion,
 		TempoEndpoint:  tempoEndpoint,
 		TempoEnabled:   tempoEnabled,
+		JaegerEndpoint: jaegerEndpoint,
+		JaegerEnabled:  jaegerEnabled,
 	}
 
 	return nil

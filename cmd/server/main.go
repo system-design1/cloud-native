@@ -58,6 +58,7 @@ func main() {
 			Str("service_name", cfg.Tracing.ServiceName).
 			Str("service_version", cfg.Tracing.ServiceVersion).
 			Bool("tempo_enabled", cfg.Tracing.TempoEnabled).
+			Bool("jaeger_enabled", cfg.Tracing.JaegerEnabled).
 			Msg("OpenTelemetry tracing initialized")
 	} else {
 		log.Debug().Msg("OpenTelemetry tracing is disabled")

@@ -46,6 +46,12 @@ func RequestResponseLoggingMiddleware() gin.HandlerFunc {
 			log = log.With().Str("span_id", spanID).Logger()
 		}
 
+		// Skip logging for /metrics endpoint to reduce log noise (Prometheus scrapes frequently)
+		if c.Request.URL.Path == "/metrics" {
+			c.Next()
+			return
+		}
+
 		// Extract request details
 		method := c.Request.Method
 		path := c.Request.URL.Path
