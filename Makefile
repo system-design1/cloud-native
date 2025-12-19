@@ -274,22 +274,44 @@ setup: deps fmt build test ## Full setup: download dependencies, format, build, 
 # Observability (OpenTelemetry, Tempo, Prometheus)
 # ============================================
 
-# Start observability stack (Tempo, Jaeger, Prometheus, Grafana)
+# Start observability stack (Tempo, Jaeger, Prometheus, Grafana, Loki, Promtail)
 .PHONY: observability-up
-observability-up: ## Start observability stack (Tempo, Jaeger, Prometheus, Grafana)
+observability-up: ## Start observability stack (Tempo, Jaeger, Prometheus, Grafana, Loki, Promtail)
 	@echo "Starting observability stack..."
 	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d
 	@echo ""
 	@echo "=========================================="
 	@echo "Observability stack started!"
 	@echo "=========================================="
-	@echo "Grafana:        http://localhost:3000 (admin/admin) - Recommended for traces"
+	@echo "Grafana:        http://localhost:3000 (admin/admin)"
+	@echo "  - Traces:     Use Tempo datasource in Explore"
+	@echo "  - Logs:       Use Loki datasource in Explore"
+	@echo "  - Metrics:    Use Prometheus datasource"
 	@echo "Jaeger UI:      http://localhost:16686 (memory storage only)"
 	@echo "Prometheus:     http://localhost:9090"
 	@echo "Tempo API:      http://localhost:3200"
+	@echo "Loki API:       http://localhost:3100"
 	@echo ""
-	@echo "Note: Use Grafana to view traces from Tempo (Tempo datasource is pre-configured)"
+	@echo "Note: Use Grafana to view traces, logs, and metrics"
 	@echo "To stop: make observability-down"
+
+# Rebuild observability stack (pull latest images and restart)
+.PHONY: observability-up-rebuild
+observability-up-rebuild: ## Pull latest images and restart observability stack
+	@echo "Rebuilding observability stack..."
+	@echo "Pulling latest images..."
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml pull
+	@echo "Restarting containers..."
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d --force-recreate
+	@echo ""
+	@echo "=========================================="
+	@echo "Observability stack rebuilt and started!"
+	@echo "=========================================="
+	@echo "Grafana:        http://localhost:3000 (admin/admin)"
+	@echo "Jaeger UI:      http://localhost:16686"
+	@echo "Prometheus:     http://localhost:9090"
+	@echo "Tempo API:      http://localhost:3200"
+	@echo "Loki API:       http://localhost:3100"
 
 # Stop observability stack
 .PHONY: observability-down
@@ -297,6 +319,14 @@ observability-down: ## Stop observability stack
 	@echo "Stopping observability stack..."
 	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml down
 	@echo "Observability stack stopped"
+
+# Stop observability stack and remove volumes (clears all data)
+.PHONY: observability-down-clean
+observability-down-clean: ## Stop observability stack and remove volumes (WARNING: clears all data)
+	@echo "WARNING: This will remove all observability data (traces, metrics, dashboards)"
+	@echo "Stopping observability stack and removing volumes..."
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml down -v
+	@echo "Observability stack stopped and volumes removed"
 
 # View observability logs
 .PHONY: observability-logs
@@ -359,3 +389,27 @@ grafana-up: ## Start Grafana visualization only
 .PHONY: grafana-down
 grafana-down: ## Stop Grafana
 	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml stop grafana
+
+# Start Loki only
+.PHONY: loki-up
+loki-up: ## Start Loki log aggregation only
+	@echo "Starting Loki..."
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d loki promtail
+	@echo ""
+	@echo "=========================================="
+	@echo "Loki started!"
+	@echo "=========================================="
+	@echo "Loki API:       http://localhost:3100"
+	@echo ""
+	@echo "Note: Start Grafana (make grafana-up) to view logs from Loki"
+	@echo ""
+
+# Stop Loki
+.PHONY: loki-down
+loki-down: ## Stop Loki
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml stop loki promtail
+
+# View Loki logs
+.PHONY: loki-logs
+loki-logs: ## View Loki and Promtail logs
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml logs -f loki promtail

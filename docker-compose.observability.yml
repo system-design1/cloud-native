@@ -1,7 +1,7 @@
 services:
   # Tempo - Distributed Tracing Backend
   tempo:
-    image: grafana/tempo:latest
+    image: grafana/tempo:2.5.0
     container_name: go-backend-tempo
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     ports:
@@ -18,7 +18,7 @@ services:
   # Jaeger UI - Trace Visualization (using memory storage for simplicity)
   # Note: For production, use Grafana with Tempo datasource instead
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:1.57
     container_name: go-backend-jaeger
     environment:
       - SPAN_STORAGE_TYPE=memory
@@ -37,7 +37,7 @@ services:
 
   # Prometheus - Metrics Collection
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.53.0
     container_name: go-backend-prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -55,9 +55,40 @@ services:
       - app-network
     restart: unless-stopped
 
+  # Loki - Log Aggregation System
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: go-backend-loki
+    command: -config.file=/etc/loki/loki-config.yaml
+    ports:
+      - "3100:3100"  # Loki API
+    volumes:
+      - loki_data:/loki
+      - ./configs/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+    networks:
+      - observability-network
+      - app-network
+    restart: unless-stopped
+
+  # Promtail - Log Collector
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: go-backend-promtail
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./configs/promtail/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+    networks:
+      - observability-network
+      - app-network
+    depends_on:
+      - loki
+    restart: unless-stopped
+
   # Grafana - Visualization Dashboard
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.4.0
     container_name: go-backend-grafana
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
@@ -73,6 +104,7 @@ services:
     depends_on:
       - prometheus
       - tempo
+      - loki
     networks:
       - observability-network
     restart: unless-stopped
@@ -83,6 +115,8 @@ volumes:
   prometheus_data:
     driver: local
   grafana_data:
+    driver: local
+  loki_data:
     driver: local
 
 networks:

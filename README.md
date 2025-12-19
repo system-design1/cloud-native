@@ -436,23 +436,41 @@ make help
 این پروژه شامل پشتیبانی کامل از Observability است:
 
 - **OpenTelemetry Tracing**: Distributed tracing
-- **Jaeger UI**: Visualization traces
+- **Tempo**: Trace storage backend
+- **Jaeger UI**: Visualization traces (اختیاری)
 - **Prometheus**: Metrics collection
-- **Grafana**: Dashboards و visualization
+- **Loki**: Log aggregation و central logging
+- **Promtail**: Log collector از Docker containers
+- **Grafana**: Dashboards و visualization (traces, logs, metrics)
 
 ### راه‌اندازی سریع
 
 ```bash
-# راه‌اندازی تمام stack
+# راه‌اندازی تمام stack (Tempo, Jaeger, Prometheus, Loki, Grafana)
 make observability-up
 
+# بعد از تغییر config files (tempo.yaml, prometheus.yml, loki-config.yaml):
+make observability-up-rebuild
+
 # دسترسی به UI:
-# - Jaeger: http://localhost:16686
+# - Grafana: http://localhost:3000 (admin/admin) - برای traces, logs, metrics
+# - Jaeger: http://localhost:16686 (memory storage only)
 # - Prometheus: http://localhost:9090
-# - Grafana: http://localhost:3000 (admin/admin)
+# - Loki API: http://localhost:3100
+# - Tempo API: http://localhost:3200
 ```
 
-برای راهنمای کامل، به [OBSERVABILITY.md](./OBSERVABILITY.md) مراجعه کنید.
+### مشاهده Logs در Grafana
+
+1. باز کردن: http://localhost:3000
+2. رفتن به **Explore** (منوی سمت چپ)
+3. انتخاب **Loki** datasource
+4. جستجوی logs:
+   ```logql
+   {container="go-backend-api"}
+   ```
+
+برای راهنمای کامل، به [OBSERVABILITY.md](./OBSERVABILITY.md) و [LOKI_GUIDE.md](./LOKI_GUIDE.md) مراجعه کنید.
 
 ---
 
@@ -461,6 +479,8 @@ make observability-up
 - **[LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md)**: راهنمای کامل development محلی
 - **[VSCODE_DEBUG.md](./VSCODE_DEBUG.md)**: راهنمای debug با VS Code
 - **[OBSERVABILITY.md](./OBSERVABILITY.md)**: راهنمای کامل Observability
+- **[LOKI_GUIDE.md](./LOKI_GUIDE.md)**: راهنمای کامل Loki و Central Logging
+- **[LOGGING_GUIDE.md](./LOGGING_GUIDE.md)**: راهنمای مشاهده و مدیریت لاگ‌ها
 - **[RUN_GUIDE.md](./RUN_GUIDE.md)**: راهنمای اجرا (قدیمی)
 
 ---

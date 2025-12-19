@@ -1,0 +1,120 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Scrape logs from Docker containers
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: status
+            values: ["running"]
+    relabel_configs:
+      # Only scrape containers with specific labels or names
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: 'project'
+      # Extract container name without prefix
+      - source_labels: ['container']
+        regex: 'go-backend-(.*)'
+        target_label: 'container_name'
+        replacement: '${1}'
+      # Add labels for filtering
+      - source_labels: ['container']
+        regex: 'go-backend-api'
+        target_label: 'app'
+        replacement: 'go-backend-service'
+      - source_labels: ['container']
+        regex: 'go-backend-postgres'
+        target_label: 'app'
+        replacement: 'postgres'
+
+    pipeline_stages:
+      # Parse JSON logs
+      - json:
+          expressions:
+            level: level
+            message: message
+            timestamp: timestamp
+            correlation_id: correlation_id
+            trace_id: trace_id
+            span_id: span_id
+            method: method
+            path: path
+            status_code: status_code
+            latency_ms: latency_ms
+      # Extract log level
+      - labels:
+          level:
+          correlation_id:
+          trace_id:
+          method:
+          path:
+          status_code:
+      # Convert timestamp if needed
+      - timestamp:
+          source: timestamp
+          format: Unix
+
+  # Additional scrape config for specific containers
+  - job_name: go-backend-api
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["go-backend-api"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+      - target_label: 'app'
+        replacement: 'go-backend-service'
+      - target_label: 'environment'
+        replacement: 'production'
+
+    pipeline_stages:
+      # Parse JSON logs
+      - json:
+          expressions:
+            level: level
+            message: message
+            timestamp: timestamp
+            correlation_id: correlation_id
+            trace_id: trace_id
+            span_id: span_id
+            method: method
+            path: path
+            status_code: status_code
+            latency_ms: latency_ms
+            ip: ip
+            user_agent: user_agent
+      # Extract labels
+      - labels:
+          level:
+          correlation_id:
+          trace_id:
+          method:
+          path:
+          status_code:
+      # Convert timestamp
+      - timestamp:
+          source: timestamp
+          format: Unix
+
