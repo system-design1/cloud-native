@@ -32,13 +32,21 @@ dev-setup: ## Setup local development environment (create .env from env.example)
 	@if [ ! -f .env ]; then \
 		echo "Creating .env file from env.example..."; \
 		cp env.example .env; \
-		echo ".env file created. Please update DB_HOST to 'localhost' for local development."; \
-		echo "Current DB_HOST in .env: $$(grep DB_HOST .env || echo 'DB_HOST=localhost')"; \
+		echo ".env file created. Updating DB_HOST to 'localhost' for local development..."; \
 		sed -i 's/^DB_HOST=postgres/DB_HOST=localhost/' .env 2>/dev/null || \
 		sed -i '' 's/^DB_HOST=postgres/DB_HOST=localhost/' .env 2>/dev/null || true; \
-		echo "Setup completed!"; \
+		echo "Setup completed! DB_HOST set to: $$(grep '^DB_HOST' .env | cut -d'=' -f2)"; \
 	else \
-		echo ".env file already exists. Skipping..."; \
+		echo ".env file already exists."; \
+		CURRENT_DB_HOST=$$(grep '^DB_HOST' .env | cut -d'=' -f2); \
+		if [ "$$CURRENT_DB_HOST" = "postgres" ]; then \
+			echo "Updating DB_HOST from 'postgres' to 'localhost' for local development..."; \
+			sed -i 's/^DB_HOST=postgres/DB_HOST=localhost/' .env 2>/dev/null || \
+			sed -i '' 's/^DB_HOST=postgres/DB_HOST=localhost/' .env 2>/dev/null || true; \
+			echo "DB_HOST updated to: $$(grep '^DB_HOST' .env | cut -d'=' -f2)"; \
+		else \
+			echo "DB_HOST is already set to: $$CURRENT_DB_HOST"; \
+		fi \
 	fi
 
 # Start local development database
@@ -80,21 +88,36 @@ run: ## Run the Go project directly without Docker using go run
 
 # Run with hot reload using air (if installed)
 .PHONY: dev-run
-dev-run: ## Run the app locally with hot reload using air (requires air: go install github.com/cosmtrek/air@latest)
+dev-run: ## Run the app locally with hot reload using air (requires air: go install github.com/air-verse/air@latest)
 	@if [ ! -f .env ]; then \
 		echo "Error: .env file not found. Run 'make dev-setup' first."; \
 		exit 1; \
 	fi
-	@if command -v air >/dev/null 2>&1; then \
+	@AIR_BIN=$$(command -v air 2>/dev/null || echo ""); \
+	if [ -z "$$AIR_BIN" ]; then \
+		AIR_PATH=$$($(GO) env GOPATH)/bin/air; \
+		if [ -f "$$AIR_PATH" ]; then \
+			AIR_BIN="$$AIR_PATH"; \
+		fi; \
+	fi; \
+	if [ -n "$$AIR_BIN" ] && [ -f "$$AIR_BIN" ]; then \
 		echo "Running $(PROJECT_NAME) with hot reload (air)..."; \
 		echo "Make sure database is running (use 'make dev-db-up' if needed)"; \
-		export $$(grep -v '^[[:space:]]*#' .env | grep -v '^[[:space:]]*$$' | xargs) && air; \
+		export $$(grep -v '^[[:space:]]*#' .env | grep -v '^[[:space:]]*$$' | xargs) && $$AIR_BIN; \
 	else \
 		echo "air is not installed. Installing..."; \
-		$(GO) install github.com/cosmtrek/air@latest; \
-		echo "Running $(PROJECT_NAME) with hot reload (air)..."; \
-		echo "Make sure database is running (use 'make dev-db-up' if needed)"; \
-		export $$(grep -v '^[[:space:]]*#' .env | grep -v '^[[:space:]]*$$' | xargs) && $$(go env GOPATH)/bin/air; \
+		$(GO) install github.com/air-verse/air@latest; \
+		AIR_PATH=$$($(GO) env GOPATH)/bin/air; \
+		if [ -f "$$AIR_PATH" ]; then \
+			echo "Running $(PROJECT_NAME) with hot reload (air)..."; \
+			echo "Make sure database is running (use 'make dev-db-up' if needed)"; \
+			export $$(grep -v '^[[:space:]]*#' .env | grep -v '^[[:space:]]*$$' | xargs) && $$AIR_PATH; \
+		else \
+			echo "Error: Failed to install air. Please install manually:"; \
+			echo "  go install github.com/air-verse/air@latest"; \
+			echo "  Then add $$($(GO) env GOPATH)/bin to your PATH"; \
+			exit 1; \
+		fi \
 	fi
 
 # Complete local development setup: database + app

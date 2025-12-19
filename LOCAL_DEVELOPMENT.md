@@ -102,7 +102,7 @@ GIN_MODE=debug          # برای development از debug استفاده کنی�
 اگر `air` نصب نیست، دستور `make dev-run` به صورت خودکار آن را نصب می‌کند. یا می‌توانید به صورت دستی نصب کنید:
 
 ```bash
-go install github.com/cosmtrek/air@latest
+go install github.com/air-verse/air@latest
 ```
 
 ## ساختار فایل‌ها
@@ -138,7 +138,7 @@ docker ps | grep postgres
 
 ```bash
 # نصب air
-go install github.com/cosmtrek/air@latest
+go install github.com/air-verse/air@latest
 
 # یا استفاده از PATH کامل
 export PATH=$PATH:$(go env GOPATH)/bin
