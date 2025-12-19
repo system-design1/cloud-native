@@ -6,17 +6,67 @@ import (
 	"net/http"
 	"time"
 
+	"go-backend-service/internal/lifecycle"
 	"go-backend-service/internal/middleware"
 	apperrors "go-backend-service/pkg/errors"
 
 	"github.com/gin-gonic/gin"
 )
 
-// HealthHandler handles health check requests
-func HealthHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status": "ok",
-	})
+// HealthHandler handles health check requests (backward compatibility)
+// Returns OK if application is ready, Service Unavailable if shutting down
+func HealthHandler(lifecycleMgr *lifecycle.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		state := lifecycleMgr.GetState()
+		if state == lifecycle.StateReady {
+			c.JSON(http.StatusOK, gin.H{
+				"status": "ok",
+				"state":  state.String(),
+			})
+		} else {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "unavailable",
+				"state":  state.String(),
+			})
+		}
+	}
+}
+
+// ReadinessHandler handles readiness probe requests
+// Returns OK only when application is ready to serve requests
+func ReadinessHandler(lifecycleMgr *lifecycle.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if lifecycleMgr.IsReady() {
+			c.JSON(http.StatusOK, gin.H{
+				"status": "ready",
+				"state":  lifecycleMgr.GetState().String(),
+			})
+		} else {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "not_ready",
+				"state":  lifecycleMgr.GetState().String(),
+			})
+		}
+	}
+}
+
+// LivenessHandler handles liveness probe requests
+// Returns OK as long as application is not completely shut down
+func LivenessHandler(lifecycleMgr *lifecycle.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		state := lifecycleMgr.GetState()
+		if state == lifecycle.StateShutdown {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "shutdown",
+				"state":  state.String(),
+			})
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"status": "alive",
+				"state":  state.String(),
+			})
+		}
+	}
 }
 
 // HelloHandler handles hello requests

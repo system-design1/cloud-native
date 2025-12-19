@@ -26,6 +26,7 @@ func New(cfg *config.Config, handler http.Handler) *Server {
 			Handler:      handler,
 			ReadTimeout:  cfg.Server.ReadTimeout,
 			WriteTimeout: cfg.Server.WriteTimeout,
+			IdleTimeout:  cfg.Server.IdleTimeout,
 		},
 		log: logger.Get(),
 	}
@@ -38,6 +39,7 @@ func (s *Server) Start() error {
 			Str("addr", s.httpServer.Addr).
 			Dur("read_timeout", s.httpServer.ReadTimeout).
 			Dur("write_timeout", s.httpServer.WriteTimeout).
+			Dur("idle_timeout", s.httpServer.IdleTimeout).
 			Msg("Starting HTTP server listener")
 
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {

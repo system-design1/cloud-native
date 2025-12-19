@@ -1,5 +1,5 @@
 
-# Stage 8 Prompt — Docker Production Hardening & Documentation
+# Stage 7 Prompt — Docker Production Hardening & Documentation
 
 ## Overview
 You are a senior Go backend engineer. I want you to **review and harden** the Docker-related setup for production and improve documentation.

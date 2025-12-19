@@ -38,6 +38,7 @@ type ServerConfig struct {
 	Port                    int           `koanf:"port"`
 	ReadTimeout             time.Duration `koanf:"read_timeout"`
 	WriteTimeout            time.Duration `koanf:"write_timeout"`
+	IdleTimeout             time.Duration `koanf:"idle_timeout"`
 	GracefulShutdownTimeout time.Duration `koanf:"graceful_shutdown_timeout"`
 }
 
@@ -129,6 +130,16 @@ func loadServerConfig(cfg *Config) error {
 		return fmt.Errorf("invalid SERVER_WRITE_TIMEOUT: %w", err)
 	}
 
+	idleTimeoutStr := os.Getenv("SERVER_IDLE_TIMEOUT")
+	if idleTimeoutStr == "" {
+		// Default to 120 seconds if not specified
+		idleTimeoutStr = "120s"
+	}
+	idleTimeout, err := time.ParseDuration(idleTimeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid SERVER_IDLE_TIMEOUT: %w", err)
+	}
+
 	gracefulShutdownTimeoutStr := os.Getenv("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT")
 	if gracefulShutdownTimeoutStr == "" {
 		return fmt.Errorf("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT is required")
@@ -143,6 +154,7 @@ func loadServerConfig(cfg *Config) error {
 		Port:                    port,
 		ReadTimeout:             readTimeout,
 		WriteTimeout:            writeTimeout,
+		IdleTimeout:             idleTimeout,
 		GracefulShutdownTimeout: gracefulShutdownTimeout,
 	}
 

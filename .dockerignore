@@ -48,8 +48,10 @@ docker-compose*.yml
 # Temporary files
 *.tmp
 *.log
+**/*.log
 tmp/
 temp/
+dist/
 
 # Dependencies (will be downloaded in container)
 vendor/

@@ -1,5 +1,5 @@
 
-# Stage 9 Prompt — Project Documentation (README, Swagger, ADR)
+# Stage 8 Prompt — Project Documentation (README, Swagger, ADR)
 
 ## Overview
 You are a senior Go backend engineer. I want you to **review, complete, and standardize the project documentation**.
