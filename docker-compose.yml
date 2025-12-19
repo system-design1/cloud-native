@@ -60,10 +60,10 @@ services:
       OTEL_TRACING_ENABLED: ${OTEL_TRACING_ENABLED:-true}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-go-backend-service}
       OTEL_SERVICE_VERSION: ${OTEL_SERVICE_VERSION:-1.0.0}
-      OTEL_TEMPO_ENABLED: ${OTEL_TEMPO_ENABLED:-false}
-      OTEL_TEMPO_ENDPOINT: ${OTEL_TEMPO_ENDPOINT:-}
-      # Ensure Tempo is disabled when using Jaeger
-      # OTEL_TEMPO_ENABLED=false
+      # Tempo Configuration (برای مشاهده traces در Grafana)
+      OTEL_TEMPO_ENABLED: ${OTEL_TEMPO_ENABLED:-true}
+      OTEL_TEMPO_ENDPOINT: ${OTEL_TEMPO_ENDPOINT:-tempo:4318}
+      # Jaeger Configuration (می‌توانید هر دو را فعال نگه دارید)
       OTEL_JAEGER_ENABLED: ${OTEL_JAEGER_ENABLED:-true}
       OTEL_JAEGER_ENDPOINT: ${OTEL_JAEGER_ENDPOINT:-jaeger:4318}
     healthcheck:

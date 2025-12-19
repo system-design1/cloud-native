@@ -1,4 +1,4 @@
-# راهنمای Observability (OpenTelemetry, Tempo, Prometheus, Grafana)
+# راهنمای Observability (OpenTelemetry, Tempo, Prometheus, Loki, Grafana)
 
 این سند شامل راهنمای کامل برای اجرا و استفاده از ابزارهای observability در پروژه است.
 
@@ -7,6 +7,7 @@
 - [OpenTelemetry Tracing](#opentelemetry-tracing)
 - [Tempo - Distributed Tracing](#tempo---distributed-tracing)
 - [Prometheus - Metrics Collection](#prometheus---metrics-collection)
+- [Loki - Log Aggregation](#loki---log-aggregation)
 - [Grafana - Visualization](#grafana---visualization)
 - [نمایش Logs و Traces](#نمایش-logs-و-traces)
 - [مثال‌های کاربردی](#مثال‌های-کاربردی)

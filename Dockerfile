@@ -3,17 +3,17 @@
 FROM golang:1.25-alpine AS builder
 
 # Install build dependencies
-RUN rm -rf /var/cache/apk/* /etc/apk/cache/* && \
-    (apk update --no-cache || \
-     (sed -i 's/dl-cdn.alpinelinux.org/mirror.yandex.ru\/mirrors\/alpine/g' /etc/apk/repositories && \
-      apk update --no-cache)) && \
-    apk add --no-cache git make
+# Simple approach: try update, if fails continue anyway (packages might be cached)
+RUN apk update --no-cache || true && \
+    apk add --no-cache git make || \
+    (sleep 2 && apk update --no-cache && apk add --no-cache git make)
 
 # Set working directory
 WORKDIR /build
 
 # Set GOPROXY with multiple mirrors for Go modules
-ENV GOPROXY=https://proxy.golang.org,https://goproxy.cn,https://gocenter.io,https://goproxy.io,direct
+# Try Chinese mirror first (usually faster and more reliable), then direct
+ENV GOPROXY=https://goproxy.cn,direct,https://proxy.golang.org,https://goproxy.io
 
 # Copy go mod files first for better caching
 COPY go.mod go.sum ./
@@ -40,8 +40,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.20
 
 # Install ca-certificates and wget for healthcheck
-# Use --no-cache flag to avoid caching issues and ensure fresh packages
-RUN apk add --no-cache ca-certificates wget
+# Simple approach: try update, if fails continue anyway (packages might be cached)
+RUN apk update --no-cache || true && \
+    apk add --no-cache ca-certificates wget || \
+    (sleep 2 && apk update --no-cache && apk add --no-cache ca-certificates wget) && \
+    rm -rf /var/cache/apk/*
 
 # Create non-root user
 RUN addgroup -g 1000 appuser && \
