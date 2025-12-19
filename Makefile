@@ -140,10 +140,23 @@ docker-build-no-cache: ## Build the Docker image without using cache
 # Start Docker Compose services (skips rebuild if image exists)
 .PHONY: docker-up
 docker-up: ## Start the Docker containers (skips build if image exists, use docker-up-rebuild to force rebuild)
+	@if [ ! -f .env ]; then \
+		echo "Warning: .env file not found. Creating from env.example..."; \
+		cp env.example .env; \
+		echo ".env file created. You may need to adjust values."; \
+	fi
 	@echo "Starting Docker containers..."
 	@echo "Note: If image exists, it will start without rebuild. Use 'make docker-up-rebuild' to force rebuild."
 	@$(DOCKER_COMPOSE) up -d
-	@echo "Docker containers started"
+	@echo ""
+	@echo "=========================================="
+	@echo "Docker containers started!"
+	@echo "=========================================="
+	@echo "API: http://localhost:8080"
+	@echo "Health: http://localhost:8080/health"
+	@echo ""
+	@echo "To view logs: make docker-logs"
+	@echo "To stop: make docker-down"
 
 # Rebuild and start Docker Compose services (forces rebuild)
 .PHONY: docker-up-rebuild

@@ -1,65 +1,534 @@
 # Go Backend Service
 
-یک سرویس REST API ساده با استفاده از Go و Gin framework.
+یک سرویس REST API ساده و production-ready با استفاده از Go و Gin framework.
 
-## مشخصات پروژه
+## 📋 فهرست مطالب
 
-- **زبان**: Go
-- **Framework**: Gin
-- **نوع پروژه**: REST API
-- **معماری**: Monolithic Modular
-- **دیتابیس**: PostgreSQL
-- **احراز هویت**: JWT
-- **لاگینگ**: Zerolog (Structured JSON Logging with Correlation IDs)
-- **Tracing**: OpenTelemetry با پشتیبانی از Tempo
-- **Metrics**: Prometheus (آماده برای پیاده‌سازی)
-- **پیکربندی**: استفاده از environment variables با validation
+- [شروع سریع](#-شروع-سریع)
+- [پیش‌نیازها](#-پیشنیازها)
+- [ساختار پروژه](#-ساختار-پروژه)
+- [راه‌اندازی محیط Development](#-راهاندازی-محیط-development)
+- [راه‌اندازی محیط Production](#-راهاندازی-محیط-production)
+- [API Endpoints](#-api-endpoints)
+- [استفاده از Makefile](#-استفاده-از-makefile)
+- [Observability](#-observability)
+- [مستندات بیشتر](#-مستندات-بیشتر)
 
-## ساختار پروژه
+---
+
+## 🚀 شروع سریع
+
+### برای تازه‌کارها (اولین بار)
+
+```bash
+# 1. کلون کردن پروژه (اگر از Git استفاده می‌کنید)
+git clone <repository-url>
+cd sdgo
+
+# 2. ایجاد فایل .env از نمونه
+cp env.example .env
+
+# 3. راه‌اندازی با Docker (ساده‌ترین روش)
+make docker-up
+
+# 4. تست API
+curl http://localhost:8080/health
+```
+
+**خروجی مورد انتظار:**
+```json
+{"status":"ok","state":"ready"}
+```
+
+---
+
+## 📦 پیش‌نیازها
+
+### حداقل نیازمندی‌ها
+
+- **Docker** 20.10+ و **Docker Compose** 2.0+ (برای اجرای با Docker)
+- **Go** 1.21+ (فقط برای development محلی)
+- **Make** (اختیاری اما توصیه می‌شود)
+
+### نصب Docker
+
+**Linux:**
+```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
+```
+
+**macOS:**
+```bash
+brew install docker docker-compose
+# یا دانلود Docker Desktop از docker.com
+```
+
+**Windows:**
+دانلود و نصب [Docker Desktop](https://www.docker.com/products/docker-desktop)
+
+### بررسی نصب
+
+```bash
+docker --version
+docker-compose --version
+```
+
+---
+
+## 📁 ساختار پروژه
 
 ```
-.
-├── bin/                 # Compiled binaries (generated)
+sdgo/
 ├── cmd/
-│   └── server/          # Entry point
-├── internal/
-│   ├── config/          # Configuration management
-│   └── logger/          # Logging utilities
-├── pkg/                 # Shared packages
-├── configs/             # Configuration files
-├── Dockerfile           # Multi-stage Docker build
-├── docker-compose.yml   # Docker Compose configuration
-└── Makefile            # Build automation
-
+│   └── server/              # Entry point اصلی برنامه
+│       └── main.go          # نقطه شروع برنامه
+│
+├── internal/                # کدهای داخلی (غیر قابل استفاده خارجی)
+│   ├── api/                 # API handlers و routes
+│   │   ├── handlers.go     # Handler functions
+│   │   └── routes.go        # Route definitions
+│   ├── config/              # مدیریت configuration
+│   │   └── config.go        # بارگذاری و validation
+│   ├── lifecycle/           # مدیریت lifecycle (ready/shutdown)
+│   │   └── lifecycle.go
+│   ├── logger/              # Logging utilities
+│   │   └── logger.go        # Zerolog setup
+│   ├── metrics/             # Prometheus metrics
+│   │   └── metrics.go
+│   ├── middleware/          # HTTP middleware
+│   │   ├── correlation.go   # Correlation ID
+│   │   ├── error_handler.go # Error handling
+│   │   ├── logging.go       # Request/Response logging
+│   │   ├── prometheus.go    # Metrics collection
+│   │   └── tracing.go       # OpenTelemetry tracing
+│   ├── server/              # HTTP server wrapper
+│   │   └── server.go        # Server lifecycle
+│   └── tracer/              # OpenTelemetry tracer
+│       └── tracer.go
+│
+├── pkg/                      # Packages قابل استفاده خارجی
+│   └── errors/              # Error definitions
+│       └── errors.go
+│
+├── configs/                  # فایل‌های configuration
+│   ├── prometheus.yml        # Prometheus config
+│   └── tempo.yaml            # Tempo config
+│
+├── docker-compose.yml        # Docker Compose برای production
+├── docker-compose.dev.yml    # Docker Compose برای development DB
+├── docker-compose.observability.yml  # Observability stack
+├── Dockerfile                # Multi-stage Docker build
+├── Makefile                  # Build automation
+├── env.example               # نمونه فایل environment variables
+└── README.md                 # این فایل
 ```
 
-## نصب و راه‌اندازی
+### توضیح ساختار
+
+- **`cmd/server/`**: نقطه ورود برنامه. اینجا `main()` قرار دارد.
+- **`internal/`**: کدهای داخلی که نباید از خارج پروژه استفاده شوند.
+- **`pkg/`**: کدهای قابل استفاده خارجی (مثل libraries).
+- **`configs/`**: فایل‌های configuration برای ابزارهای خارجی.
+
+---
+
+## 🛠️ راه‌اندازی محیط Development
+
+### روش 1: با Docker (توصیه می‌شود برای شروع)
+
+این روش ساده‌ترین است و نیازی به نصب Go ندارد.
+
+#### مرحله 1: آماده‌سازی
+
+```bash
+# ایجاد فایل .env از نمونه
+cp env.example .env
+
+# بررسی فایل .env (مقادیر پیش‌فرض معمولاً کافی است)
+cat .env
+```
+
+#### مرحله 2: راه‌اندازی
+
+```bash
+# راه‌اندازی تمام سرویس‌ها (PostgreSQL + API)
+make docker-up
+```
+
+این دستور:
+- ✅ PostgreSQL container را راه‌اندازی می‌کند
+- ✅ Docker image را می‌سازد (در اولین اجرا)
+- ✅ API container را راه‌اندازی می‌کند
+- ✅ Health check را اجرا می‌کند
+
+#### مرحله 3: بررسی وضعیت
+
+```bash
+# مشاهده لاگ‌ها
+make docker-logs
+
+# یا فقط لاگ API
+docker-compose logs -f api
+
+# بررسی وضعیت containers
+docker ps
+```
+
+#### مرحله 4: تست API
+
+```bash
+# Health check
+curl http://localhost:8080/health
+
+# Readiness probe
+curl http://localhost:8080/ready
+
+# Liveness probe
+curl http://localhost:8080/live
+
+# Hello endpoint
+curl http://localhost:8080/hello
+```
+
+#### مرحله 5: توقف
+
+```bash
+# توقف تمام containers
+make docker-down
+```
+
+#### 🔄 Rebuild بعد از تغییر کد
+
+**مهم:** Docker به صورت خودکار کد را rebuild نمی‌کند. بعد از تغییر کد:
+
+```bash
+# روش 1: Rebuild و restart
+make docker-up-rebuild
+
+# روش 2: فقط rebuild API
+docker-compose build api
+docker-compose up -d api
+
+# روش 3: Rebuild با --build flag
+docker-compose up -d --build api
+```
+
+### روش 2: اجرای محلی با Hot Reload (برای Development)
+
+این روش برای development بهتر است چون با هر تغییر کد، خودکار rebuild می‌شود.
+
+#### مرحله 1: راه‌اندازی دیتابیس
+
+```bash
+# راه‌اندازی PostgreSQL
+make dev-db-up
+```
+
+#### مرحله 2: تنظیم .env
+
+```bash
+# ایجاد .env (اگر وجود ندارد)
+make dev-setup
+
+# تغییر DB_HOST به localhost
+# در فایل .env:
+# DB_HOST=localhost
+```
+
+#### مرحله 3: اجرای برنامه
+
+```bash
+# اجرا با hot reload (توصیه می‌شود)
+make dev-run
+
+# یا اجرای ساده (بدون hot reload)
+make run
+```
+
+**نکته:** `make dev-run` از `air` استفاده می‌کند که به صورت خودکار نصب می‌شود.
+
+#### مرحله 4: توقف
+
+```bash
+# توقف دیتابیس
+make dev-db-down
+
+# توقف برنامه: Ctrl+C
+```
+
+### مقایسه روش‌ها
+
+| ویژگی | Docker (`make docker-up`) | Local (`make dev-run`) |
+|-------|---------------------------|------------------------|
+| نیاز به Go | ❌ | ✅ |
+| Hot Reload | ❌ (نیاز به rebuild) | ✅ (خودکار) |
+| سرعت تغییرات | کند (نیاز به rebuild) | سریع (instant) |
+| مناسب برای | Testing, Production | Development |
+| پیچیدگی | ساده | متوسط |
+
+**توصیه:**
+- **شروع کار**: از `make docker-up` استفاده کنید
+- **Development فعال**: از `make dev-run` استفاده کنید
+
+---
+
+## 🏭 راه‌اندازی محیط Production
 
 ### پیش‌نیازها
 
-- Go 1.21 یا بالاتر
-- Docker و Docker Compose (برای اجرای با Docker)
+1. فایل `.env` با مقادیر production
+2. `JWT_SECRET_KEY` و `JWT_REFRESH_SECRET` باید تغییر کنند
+3. `GIN_MODE=release`
 
-### نصب وابستگی‌ها
+### مرحله 1: تنظیم Environment Variables
 
 ```bash
-make deps
-# یا
-go mod download
+# کپی از نمونه
+cp env.example .env
+
+# ویرایش .env و تغییر مقادیر مهم:
+# - JWT_SECRET_KEY (حداقل 32 کاراکتر)
+# - JWT_REFRESH_SECRET (حداقل 32 کاراکتر)
+# - GIN_MODE=release
+# - LOG_LEVEL=info
 ```
 
-### تنظیم Environment Variables
+### مرحله 2: Build Docker Image
 
-یک فایل `.env` در ریشه پروژه ایجاد کنید:
+```bash
+# Build image
+make docker-build
 
-```env
-# Server Configuration
+# یا force rebuild
+make docker-build-rebuild
+```
+
+### مرحله 3: اجرا
+
+```bash
+# با Docker Compose
+make docker-up
+
+# یا با Docker مستقیم
+docker run -d \
+  --name go-backend-api \
+  -p 8080:8080 \
+  --env-file .env \
+  go-backend-service:latest
+```
+
+### مرحله 4: بررسی Health
+
+```bash
+# Health check
+curl http://localhost:8080/health
+
+# Readiness (برای Kubernetes)
+curl http://localhost:8080/ready
+
+# Liveness (برای Kubernetes)
+curl http://localhost:8080/live
+```
+
+### مرحله 5: Monitoring
+
+```bash
+# مشاهده logs
+docker logs -f go-backend-api
+
+# یا با Docker Compose
+docker-compose logs -f api
+```
+
+### نکات Production
+
+1. **Secrets Management**: از Docker Secrets یا Kubernetes Secrets استفاده کنید
+2. **Logging**: Logs به `stdout` می‌روند. از log aggregation استفاده کنید
+3. **Health Checks**: از `/ready` و `/live` برای Kubernetes probes استفاده کنید
+4. **Graceful Shutdown**: برنامه از graceful shutdown پشتیبانی می‌کند
+5. **Metrics**: از `/metrics` برای Prometheus scraping استفاده کنید
+
+---
+
+## 🔌 API Endpoints
+
+### Health & Lifecycle
+
+| Endpoint | Method | توضیحات | استفاده |
+|----------|--------|---------|---------|
+| `/health` | GET | Health check عمومی | Docker healthcheck |
+| `/ready` | GET | Readiness probe | Kubernetes readiness |
+| `/live` | GET | Liveness probe | Kubernetes liveness |
+
+**مثال:**
+```bash
+curl http://localhost:8080/health
+# {"status":"ok","state":"ready"}
+
+curl http://localhost:8080/ready
+# {"status":"ready","state":"ready"}
+
+curl http://localhost:8080/live
+# {"status":"alive","state":"ready"}
+```
+
+### Application Endpoints
+
+| Endpoint | Method | توضیحات |
+|----------|--------|---------|
+| `/hello` | GET | پیام Hello World |
+| `/delayed-hello` | GET | Hello با delay تصادفی (1-3 ثانیه) |
+| `/test-error` | GET | تست error handling |
+| `/metrics` | GET | Prometheus metrics |
+
+**مثال:**
+```bash
+curl http://localhost:8080/hello
+# {"message":"Hello, World!"}
+
+curl http://localhost:8080/metrics
+# # HELP http_request_duration_seconds Duration of HTTP requests...
+```
+
+---
+
+## 🎯 استفاده از Makefile
+
+### دستورات اصلی
+
+```bash
+# نمایش تمام دستورات
+make help
+
+# Development
+make dev              # راه‌اندازی کامل محیط dev
+make dev-setup        # ایجاد .env
+make dev-db-up        # راه‌اندازی دیتابیس
+make dev-run          # اجرا با hot reload
+make run              # اجرای ساده
+
+# Docker
+make docker-up        # راه‌اندازی containers
+make docker-down      # توقف containers
+make docker-logs      # مشاهده logs
+make docker-build     # Build image
+make docker-up-rebuild # Rebuild و restart
+
+# Build & Test
+make build            # Build binary
+make test             # اجرای تست‌ها
+make deps             # دانلود dependencies
+```
+
+### دستورات کامل
+
+برای لیست کامل دستورات:
+```bash
+make help
+```
+
+---
+
+## 📊 Observability
+
+این پروژه شامل پشتیبانی کامل از Observability است:
+
+- **OpenTelemetry Tracing**: Distributed tracing
+- **Jaeger UI**: Visualization traces
+- **Prometheus**: Metrics collection
+- **Grafana**: Dashboards و visualization
+
+### راه‌اندازی سریع
+
+```bash
+# راه‌اندازی تمام stack
+make observability-up
+
+# دسترسی به UI:
+# - Jaeger: http://localhost:16686
+# - Prometheus: http://localhost:9090
+# - Grafana: http://localhost:3000 (admin/admin)
+```
+
+برای راهنمای کامل، به [OBSERVABILITY.md](./OBSERVABILITY.md) مراجعه کنید.
+
+---
+
+## 📚 مستندات بیشتر
+
+- **[LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md)**: راهنمای کامل development محلی
+- **[VSCODE_DEBUG.md](./VSCODE_DEBUG.md)**: راهنمای debug با VS Code
+- **[OBSERVABILITY.md](./OBSERVABILITY.md)**: راهنمای کامل Observability
+- **[RUN_GUIDE.md](./RUN_GUIDE.md)**: راهنمای اجرا (قدیمی)
+
+---
+
+## 🐛 عیب‌یابی (Troubleshooting)
+
+### مشکل: Container از کد قدیمی استفاده می‌کند
+
+**راه‌حل:**
+```bash
+# Rebuild container
+make docker-up-rebuild
+
+# یا
+docker-compose build api
+docker-compose up -d api
+```
+
+### مشکل: Port 8080 در حال استفاده است
+
+**راه‌حل:**
+```bash
+# تغییر port در .env
+SERVER_PORT=8081
+
+# یا توقف برنامه استفاده‌کننده از port
+sudo lsof -i :8080
+kill -9 <PID>
+```
+
+### مشکل: Database connection failed
+
+**راه‌حل:**
+```bash
+# بررسی وضعیت PostgreSQL
+docker ps | grep postgres
+
+# بررسی logs
+docker-compose logs postgres
+
+# Restart database
+docker-compose restart postgres
+```
+
+### مشکل: `/ready` یا `/live` 404 می‌دهد
+
+**راه‌حل:**
+```bash
+# Container از کد قدیمی استفاده می‌کند
+make docker-up-rebuild
+```
+
+---
+
+## 📝 Environment Variables
+
+تمام متغیرهای محیطی در `env.example` تعریف شده‌اند:
+
+```bash
+# Server
 SERVER_HOST=0.0.0.0
 SERVER_PORT=8080
 SERVER_READ_TIMEOUT=15s
 SERVER_WRITE_TIMEOUT=15s
+SERVER_IDLE_TIMEOUT=120s
+SERVER_GRACEFUL_SHUTDOWN_TIMEOUT=10s
 
-# Database Configuration
+# Database
 DB_HOST=postgres
 DB_PORT=5432
 DB_USER=postgres
@@ -67,310 +536,56 @@ DB_PASSWORD=postgres
 DB_NAME=go_backend_db
 DB_SSLMODE=disable
 
-# JWT Configuration
-JWT_SECRET_KEY=your-secret-key-change-in-production
-JWT_REFRESH_SECRET=your-refresh-secret-key-change-in-production
+# JWT
+JWT_SECRET_KEY=your-secret-key-change-in-production-min-32-chars
+JWT_REFRESH_SECRET=your-refresh-secret-key-change-in-production-min-32-chars
 JWT_EXPIRATION=24h
 
-# Application Configuration
-GIN_MODE=release
+# Application
+GIN_MODE=release  # یا debug برای development
+LOG_LEVEL=info    # debug, info, warn, error
+
+# OpenTelemetry
+OTEL_TRACING_ENABLED=true
+OTEL_SERVICE_NAME=go-backend-service
+OTEL_SERVICE_VERSION=1.0.0
+OTEL_JAEGER_ENABLED=true
+OTEL_JAEGER_ENDPOINT=jaeger:4318
 ```
 
-### اجرای پروژه
+---
 
-#### اجرای محلی (توصیه می‌شود برای Development)
+## 🔒 امنیت
 
-برای راهنمای کامل اجرای محلی، به [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) مراجعه کنید.
+- ✅ Non-root user در Docker
+- ✅ Graceful shutdown
+- ✅ Health checks
+- ✅ Structured logging
+- ✅ Error handling
+- ⚠️ **مهم**: در production، `JWT_SECRET_KEY` را تغییر دهید
 
-```bash
-# راه‌اندازی کامل محیط توسعه (ایجاد .env و راه‌اندازی دیتابیس)
-make dev
+---
 
-# اجرای برنامه با hot reload (توصیه می‌شود)
-make dev-run
-
-# یا اجرای ساده
-make run
-```
-
-#### Debug با VS Code
-
-برای راهنمای کامل debug با VS Code، به [VSCODE_DEBUG.md](./VSCODE_DEBUG.md) مراجعه کنید.
-
-**راه‌اندازی سریع:**
-1. نصب Go Extension در VS Code
-2. راه‌اندازی دیتابیس: `make dev-db-up`
-3. فشردن F5 برای شروع debug
-4. قرار دادن breakpoint و debug کردن!
-
-#### اجرا با Docker Compose
-
-```bash
-# ساخت و راه‌اندازی سرویس‌ها
-make docker-up
-
-# مشاهده لاگ‌ها
-make docker-logs
-
-# توقف سرویس‌ها
-make docker-down
-
-# Rebuild و restart
-docker-compose up -d --build api
-```
-
-**نکات مهم:**
-- قبل از اجرا، فایل `.env` را از `env.example` کپی کنید
-- API روی پورت `8080` و PostgreSQL روی پورت `5432` در دسترس است
-- Health check endpoint: `http://localhost:8080/health`
-- برای مشاهده وضعیت health check: `docker ps` (ستون STATUS)
-
-## استفاده از Makefile
-
-```bash
-make help          # نمایش تمام دستورات موجود
-
-# Development (Local)
-make dev           # راه‌اندازی کامل محیط توسعه
-make dev-setup     # ایجاد فایل .env از env.example
-make dev-db-up     # راه‌اندازی دیتابیس محلی
-make dev-db-down   # توقف دیتابیس محلی
-make dev-run       # اجرای برنامه با hot reload (air)
-make run           # اجرای ساده برنامه
-
-# Build & Test
-make build         # ساخت پروژه
-make test          # اجرای تست‌ها
-make deps          # دانلود وابستگی‌ها
-
-# Docker
-make docker-build  # ساخت Docker image
-make docker-up     # راه‌اندازی Docker containers
-make docker-down   # توقف Docker containers
-make docker-logs   # مشاهده لاگ‌های Docker
-
-# Observability (OpenTelemetry, Tempo, Prometheus, Grafana)
-make observability-up    # راه‌اندازی تمام observability stack
-make observability-down  # توقف observability stack
-make tempo-up            # راه‌اندازی Tempo + Jaeger
-make prometheus-up       # راه‌اندازی Prometheus
-make grafana-up          # راه‌اندازی Grafana
-
-# Utilities
-make clean         # پاکسازی فایل‌های build
-make fmt           # فرمت کردن کد
-make lint          # اجرای linter
-```
-
-برای جزئیات بیشتر، به [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) مراجعه کنید.
-
-## API Endpoints
-
-### Health Check
-```
-GET /health
-```
-این endpoint برای health check در Docker و Kubernetes استفاده می‌شود. وضعیت سلامت سرویس را برمی‌گرداند.
-
-### Hello World
-```
-GET /hello
-```
-یک پیام ساده "Hello, World!" برمی‌گرداند.
-
-### Metrics (Prometheus)
-```
-GET /metrics
-```
-این endpoint metrics را در فرمت استاندارد Prometheus برمی‌گرداند. برای scrape کردن توسط Prometheus استفاده می‌شود.
-
-## ساخت و اجرای Docker Image
-
-### ساخت Image
-
-```bash
-make docker-build
-# یا
-docker build -t go-backend-service:latest .
-```
-
-### اجرای Production Image
-
-```bash
-# اجرای مستقیم با Docker
-docker run -d \
-  --name go-backend-api \
-  -p 8080:8080 \
-  --env-file .env \
-  go-backend-service:latest
-
-# یا با Docker Compose (برای development)
-docker-compose up -d
-```
-
-### Environment Variables
-
-تمام متغیرهای محیطی مورد نیاز در فایل `env.example` تعریف شده‌اند. برای اجرای production:
-
-1. فایل `.env` را از `env.example` کپی کنید:
-   ```bash
-   cp env.example .env
-   ```
-
-2. مقادیر را برای محیط production تنظیم کنید (خصوصاً `JWT_SECRET_KEY` و `JWT_REFRESH_SECRET`)
-
-3. فایل `.env` را به container منتقل کنید یا از `--env-file` استفاده کنید
-
-**نکته:** در production، از secrets management system (مثل Docker Secrets، Kubernetes Secrets، یا AWS Secrets Manager) استفاده کنید.
-
-### Health Endpoints
-
-این سرویس از health check endpoint برای container healthchecks استفاده می‌کند:
-
-- **Health Check**: `GET /health`
-  - برای liveness و readiness probes استفاده می‌شود
-  - در Dockerfile و docker-compose.yml پیکربندی شده است
-  - وضعیت: `{"status":"ok"}`
-
-### Logs
-
-- **مکان Logs**: تمام logs به `stdout` و `stderr` نوشته می‌شوند
-- **فرمت**: Structured JSON logging (Zerolog)
-- **مشاهده Logs**:
-  ```bash
-  # Docker Compose
-  docker-compose logs -f api
-  
-  # Docker
-  docker logs -f go-backend-api
-  ```
-
-**نکته:** در production، از log aggregation tools (مثل ELK Stack، Loki، یا CloudWatch) برای جمع‌آوری و تحلیل logs استفاده کنید.
-
-## ساخت Binary
-
-```bash
-make build
-# Binary در bin/go-backend-service قرار می‌گیرد
-
-# اجرای مستقیم binary
-./bin/go-backend-service
-```
-
-## تست
-
-```bash
-make test
-# یا
-go test ./...
-```
-
-## لاگینگ
-
-این پروژه از Zerolog برای لاگینگ استفاده می‌کند و شامل:
-- Structured JSON logging
-- Correlation IDs برای ردیابی درخواست‌ها
-- Trace ID و Span ID در logs (با OpenTelemetry)
-- Log levels قابل تنظیم
-
-## Observability (Tracing, Metrics, Logs)
-
-این پروژه شامل پشتیبانی کامل از observability است:
-
-- **OpenTelemetry Tracing**: برای distributed tracing
-- **Tempo**: Backend برای ذخیره traces
-- **Jaeger UI**: برای visualization traces
-- **Prometheus**: برای metrics collection
-- **Grafana**: برای visualization و dashboards
-
-### راهنمای کامل Observability
-
-برای راهنمای کامل و مثال‌های کاربردی، به [OBSERVABILITY.md](./OBSERVABILITY.md) مراجعه کنید.
-
-**راه‌اندازی سریع:**
-
-```bash
-# راه‌اندازی تمام observability stack
-make observability-up
-
-# تنظیم environment variables برای Tempo
-export OTEL_TRACING_ENABLED=true
-export OTEL_TEMPO_ENABLED=true
-export OTEL_TEMPO_ENDPOINT=localhost:4318
-
-# اجرای API
-make run
-
-# دسترسی به رابط‌های کاربری:
-# - Jaeger UI: http://localhost:16686
-# - Prometheus: http://localhost:9090
-# - Grafana: http://localhost:3000
-```
-
-## CI/CD Plan
-
-این بخش یک نقشه راه برای پیاده‌سازی CI/CD pipeline در آینده است:
-
-### Pipeline Stages
-
-1. **Test Stage**
-   - اجرای unit tests: `go test ./...`
-   - اجرای linter: `golangci-lint run`
-   - بررسی coverage
-
-2. **Build Stage**
-   - ساخت Docker image
-   - Tag کردن image با version (git tag یا commit SHA)
-   - Push به container registry (Docker Hub, GitHub Container Registry، یا private registry)
-
-3. **Security Scan** (Optional)
-   - اجرای Trivy برای scan کردن vulnerabilities
-   - اجرای Snyk یا OWASP Dependency-Check
-
-4. **Deploy Stage** (Optional)
-   - Deploy به staging environment
-   - اجرای integration tests
-   - Deploy به production (با approval)
-
-### Tools پیشنهادی
-
-- **CI/CD Platform**: GitHub Actions, GitLab CI, Jenkins، یا CircleCI
-- **Linter**: `golangci-lint`
-- **Security Scanner**: Trivy, Snyk
-- **Container Registry**: Docker Hub, GitHub Container Registry, AWS ECR
-
-### مثال GitHub Actions Workflow
-
-```yaml
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
-      - run: go test ./...
-      - run: golangci-lint run
-
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Build Docker image
-        run: docker build -t go-backend-service:${{ github.sha }} .
-      - name: Scan image
-        run: trivy image go-backend-service:${{ github.sha }}
-```
-
-## مجوز
+## 📄 مجوز
 
 MIT
 
+---
+
+## 🤝 مشارکت
+
+برای مشارکت در پروژه، لطفاً:
+1. Issue ایجاد کنید
+2. Fork کنید
+3. Branch جدید بسازید
+4. تغییرات را commit کنید
+5. Pull Request ارسال کنید
+
+---
+
+## 📞 پشتیبانی
+
+برای سوالات و مشکلات:
+- Issue در GitHub ایجاد کنید
+- مستندات را بررسی کنید
+- Logs را بررسی کنید: `make docker-logs`
