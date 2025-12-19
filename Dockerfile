@@ -1,4 +1,5 @@
 # Build stage
+# Pin Go version for reproducibility
 FROM golang:1.25-alpine AS builder
 
 # Install build dependencies
@@ -28,19 +29,22 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY . .
 
 # Build the application (using cache for go build cache as well)
+# -trimpath: removes file system paths from the compiled binary for reproducibility
+# -ldflags="-s -w": strips debug symbols and reduces binary size
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o go-backend-service ./cmd/server
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -a -installsuffix cgo -o go-backend-service ./cmd/server
 
 # Final stage
-FROM alpine:latest
+# Pin Alpine version for reproducibility and security
+FROM alpine:3.20
 
-# Install ca-certificates for HTTPS requests
+# Install ca-certificates and wget for healthcheck
 RUN rm -rf /var/cache/apk/* /etc/apk/cache/* && \
     (apk update --no-cache || \
      (sed -i 's/dl-cdn.alpinelinux.org/mirror.yandex.ru\/mirrors\/alpine/g' /etc/apk/repositories && \
       apk update --no-cache)) && \
-    apk --no-cache add ca-certificates
+    apk --no-cache add ca-certificates wget
 
 # Create non-root user
 RUN addgroup -g 1000 appuser && \
@@ -61,6 +65,11 @@ USER appuser
 # Expose port
 EXPOSE 8080
 
-# Run the application
-CMD ["./go-backend-service"]
+# Health check - checks the /health endpoint
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Use ENTRYPOINT exec-form for proper signal handling (SIGTERM)
+# This ensures the application receives signals correctly for graceful shutdown
+ENTRYPOINT ["./go-backend-service"]
 

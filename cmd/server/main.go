@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"go-backend-service/internal/api"
 	"go-backend-service/internal/config"
+	"go-backend-service/internal/lifecycle"
 	"go-backend-service/internal/logger"
 	"go-backend-service/internal/server"
 	"go-backend-service/internal/tracer"
@@ -20,6 +22,10 @@ func main() {
 	// Initialize logger (reads LOG_LEVEL from environment)
 	logger.Init()
 	log := logger.Get()
+
+	// Initialize lifecycle manager
+	lifecycleMgr := lifecycle.NewManager()
+	lifecycleMgr.SetState(lifecycle.StateStarting)
 
 	log.Info().Msg("Initializing application...")
 
@@ -73,9 +79,9 @@ func main() {
 	api.SetupMiddleware(router)
 	log.Info().Msg("Middleware setup completed")
 
-	// Setup routes
+	// Setup routes (pass lifecycle manager for health endpoints)
 	log.Debug().Msg("Setting up routes...")
-	api.SetupRoutes(router)
+	api.SetupRoutes(router, lifecycleMgr)
 	log.Info().Msg("Routes setup completed")
 
 	// Create and start server
@@ -85,36 +91,71 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to start server")
 	}
 
+	// Mark application as ready
+	lifecycleMgr.SetState(lifecycle.StateReady)
+
 	// Log server startup
 	log.Info().
 		Str("address", fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)).
 		Str("mode", cfg.App.GinMode).
+		Str("state", lifecycleMgr.GetState().String()).
 		Msg("HTTP server is running and ready to accept connections")
 
 	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	sig := <-quit
 
-	log.Info().Msg("Received shutdown signal, initiating graceful shutdown...")
+	// Mark application as shutting down
+	lifecycleMgr.SetState(lifecycle.StateShuttingDown)
+
+	log.Info().
+		Str("signal", sig.String()).
+		Str("state", lifecycleMgr.GetState().String()).
+		Msg("Received shutdown signal, initiating graceful shutdown...")
 
 	// Graceful shutdown with timeout from configuration
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.GracefulShutdownTimeout)
 	defer cancel()
 
+	// Shutdown HTTP server
+	log.Info().Dur("timeout", cfg.Server.GracefulShutdownTimeout).Msg("Shutting down HTTP server...")
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal().Err(err).Msg("Server forced to shutdown")
+		if err == context.DeadlineExceeded {
+			log.Error().
+				Err(err).
+				Dur("timeout", cfg.Server.GracefulShutdownTimeout).
+				Msg("Shutdown timeout exceeded, forcing termination")
+			// Force shutdown if timeout exceeded
+			os.Exit(1)
+		} else {
+			log.Error().Err(err).Msg("Error during HTTP server shutdown")
+		}
+	} else {
+		log.Info().Msg("HTTP server shutdown completed successfully")
 	}
 
 	// Shutdown tracer
 	if cfg.Tracing.Enabled {
-		log.Debug().Msg("Shutting down OpenTelemetry tracer...")
-		if err := tracer.Shutdown(ctx); err != nil {
-			log.Error().Err(err).Msg("Error shutting down tracer")
+		log.Info().Msg("Shutting down OpenTelemetry tracer...")
+		tracerCtx, tracerCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer tracerCancel()
+
+		if err := tracer.Shutdown(tracerCtx); err != nil {
+			if err == context.DeadlineExceeded {
+				log.Error().Err(err).Msg("Tracer shutdown timeout exceeded")
+			} else {
+				log.Error().Err(err).Msg("Error shutting down tracer")
+			}
 		} else {
 			log.Info().Msg("Tracer shut down successfully")
 		}
 	}
 
-	log.Info().Msg("Server exited gracefully")
+	// Mark application as shutdown
+	lifecycleMgr.SetState(lifecycle.StateShutdown)
+
+	log.Info().
+		Str("state", lifecycleMgr.GetState().String()).
+		Msg("Server exited gracefully")
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"go-backend-service/internal/lifecycle"
 	"go-backend-service/internal/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -33,12 +34,14 @@ func SetupMiddleware(router *gin.Engine) {
 }
 
 // SetupRoutes registers all routes with the router
-func SetupRoutes(router *gin.Engine) {
+func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager) {
 	// Prometheus metrics endpoint (must be before other routes to avoid middleware)
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// Health check route
-	router.GET("/health", HealthHandler)
+	// Health check routes (liveness and readiness)
+	router.GET("/health", HealthHandler(lifecycleMgr))
+	router.GET("/ready", ReadinessHandler(lifecycleMgr))
+	router.GET("/live", LivenessHandler(lifecycleMgr))
 
 	// Hello routes
 	router.GET("/hello", HelloHandler)

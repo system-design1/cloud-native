@@ -34,6 +34,7 @@ services:
       SERVER_PORT: ${SERVER_PORT:-8080}
       SERVER_READ_TIMEOUT: ${SERVER_READ_TIMEOUT:-15s}
       SERVER_WRITE_TIMEOUT: ${SERVER_WRITE_TIMEOUT:-15s}
+      SERVER_IDLE_TIMEOUT: ${SERVER_IDLE_TIMEOUT:-120s}
       SERVER_GRACEFUL_SHUTDOWN_TIMEOUT: ${SERVER_GRACEFUL_SHUTDOWN_TIMEOUT:-10s}
       
       # Database Configuration
@@ -65,6 +66,12 @@ services:
       # OTEL_TEMPO_ENABLED=false
       OTEL_JAEGER_ENABLED: ${OTEL_JAEGER_ENABLED:-true}
       OTEL_JAEGER_ENDPOINT: ${OTEL_JAEGER_ENDPOINT:-jaeger:4318}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy

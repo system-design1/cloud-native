@@ -103,7 +103,7 @@ make run
 3. فشردن F5 برای شروع debug
 4. قرار دادن breakpoint و debug کردن!
 
-#### اجرا با Docker Compose (Production)
+#### اجرا با Docker Compose
 
 ```bash
 # ساخت و راه‌اندازی سرویس‌ها
@@ -114,7 +114,16 @@ make docker-logs
 
 # توقف سرویس‌ها
 make docker-down
+
+# Rebuild و restart
+docker-compose up -d --build api
 ```
+
+**نکات مهم:**
+- قبل از اجرا، فایل `.env` را از `env.example` کپی کنید
+- API روی پورت `8080` و PostgreSQL روی پورت `5432` در دسترس است
+- Health check endpoint: `http://localhost:8080/health`
+- برای مشاهده وضعیت health check: `docker ps` (ستون STATUS)
 
 ## استفاده از Makefile
 
@@ -161,19 +170,82 @@ make lint          # اجرای linter
 ```
 GET /health
 ```
+این endpoint برای health check در Docker و Kubernetes استفاده می‌شود. وضعیت سلامت سرویس را برمی‌گرداند.
 
 ### Hello World
 ```
 GET /hello
 ```
+یک پیام ساده "Hello, World!" برمی‌گرداند.
 
-## ساخت Docker Image
+### Metrics (Prometheus)
+```
+GET /metrics
+```
+این endpoint metrics را در فرمت استاندارد Prometheus برمی‌گرداند. برای scrape کردن توسط Prometheus استفاده می‌شود.
+
+## ساخت و اجرای Docker Image
+
+### ساخت Image
 
 ```bash
 make docker-build
 # یا
 docker build -t go-backend-service:latest .
 ```
+
+### اجرای Production Image
+
+```bash
+# اجرای مستقیم با Docker
+docker run -d \
+  --name go-backend-api \
+  -p 8080:8080 \
+  --env-file .env \
+  go-backend-service:latest
+
+# یا با Docker Compose (برای development)
+docker-compose up -d
+```
+
+### Environment Variables
+
+تمام متغیرهای محیطی مورد نیاز در فایل `env.example` تعریف شده‌اند. برای اجرای production:
+
+1. فایل `.env` را از `env.example` کپی کنید:
+   ```bash
+   cp env.example .env
+   ```
+
+2. مقادیر را برای محیط production تنظیم کنید (خصوصاً `JWT_SECRET_KEY` و `JWT_REFRESH_SECRET`)
+
+3. فایل `.env` را به container منتقل کنید یا از `--env-file` استفاده کنید
+
+**نکته:** در production، از secrets management system (مثل Docker Secrets، Kubernetes Secrets، یا AWS Secrets Manager) استفاده کنید.
+
+### Health Endpoints
+
+این سرویس از health check endpoint برای container healthchecks استفاده می‌کند:
+
+- **Health Check**: `GET /health`
+  - برای liveness و readiness probes استفاده می‌شود
+  - در Dockerfile و docker-compose.yml پیکربندی شده است
+  - وضعیت: `{"status":"ok"}`
+
+### Logs
+
+- **مکان Logs**: تمام logs به `stdout` و `stderr` نوشته می‌شوند
+- **فرمت**: Structured JSON logging (Zerolog)
+- **مشاهده Logs**:
+  ```bash
+  # Docker Compose
+  docker-compose logs -f api
+  
+  # Docker
+  docker logs -f go-backend-api
+  ```
+
+**نکته:** در production، از log aggregation tools (مثل ELK Stack، Loki، یا CloudWatch) برای جمع‌آوری و تحلیل logs استفاده کنید.
 
 ## ساخت Binary
 
@@ -233,6 +305,69 @@ make run
 # - Jaeger UI: http://localhost:16686
 # - Prometheus: http://localhost:9090
 # - Grafana: http://localhost:3000
+```
+
+## CI/CD Plan
+
+این بخش یک نقشه راه برای پیاده‌سازی CI/CD pipeline در آینده است:
+
+### Pipeline Stages
+
+1. **Test Stage**
+   - اجرای unit tests: `go test ./...`
+   - اجرای linter: `golangci-lint run`
+   - بررسی coverage
+
+2. **Build Stage**
+   - ساخت Docker image
+   - Tag کردن image با version (git tag یا commit SHA)
+   - Push به container registry (Docker Hub, GitHub Container Registry، یا private registry)
+
+3. **Security Scan** (Optional)
+   - اجرای Trivy برای scan کردن vulnerabilities
+   - اجرای Snyk یا OWASP Dependency-Check
+
+4. **Deploy Stage** (Optional)
+   - Deploy به staging environment
+   - اجرای integration tests
+   - Deploy به production (با approval)
+
+### Tools پیشنهادی
+
+- **CI/CD Platform**: GitHub Actions, GitLab CI, Jenkins، یا CircleCI
+- **Linter**: `golangci-lint`
+- **Security Scanner**: Trivy, Snyk
+- **Container Registry**: Docker Hub, GitHub Container Registry, AWS ECR
+
+### مثال GitHub Actions Workflow
+
+```yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v4
+      - run: go test ./...
+      - run: golangci-lint run
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build Docker image
+        run: docker build -t go-backend-service:${{ github.sha }} .
+      - name: Scan image
+        run: trivy image go-backend-service:${{ github.sha }}
 ```
 
 ## مجوز
