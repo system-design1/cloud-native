@@ -40,11 +40,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.20
 
 # Install ca-certificates and wget for healthcheck
-RUN rm -rf /var/cache/apk/* /etc/apk/cache/* && \
-    (apk update --no-cache || \
-     (sed -i 's/dl-cdn.alpinelinux.org/mirror.yandex.ru\/mirrors\/alpine/g' /etc/apk/repositories && \
-      apk update --no-cache)) && \
-    apk --no-cache add ca-certificates wget
+# Use --no-cache flag to avoid caching issues and ensure fresh packages
+RUN apk add --no-cache ca-certificates wget
 
 # Create non-root user
 RUN addgroup -g 1000 appuser && \
