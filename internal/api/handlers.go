@@ -15,15 +15,24 @@ import (
 
 // HealthHandler handles health check requests (backward compatibility)
 // Returns OK if application is ready, Service Unavailable if shutting down
+// Supports both GET and HEAD methods for health checks
 func HealthHandler(lifecycleMgr *lifecycle.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state := lifecycleMgr.GetState()
 		if state == lifecycle.StateReady {
+			if c.Request.Method == "HEAD" {
+				c.Status(http.StatusOK)
+				return
+			}
 			c.JSON(http.StatusOK, gin.H{
 				"status": "ok",
 				"state":  state.String(),
 			})
 		} else {
+			if c.Request.Method == "HEAD" {
+				c.Status(http.StatusServiceUnavailable)
+				return
+			}
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"status": "unavailable",
 				"state":  state.String(),
@@ -52,15 +61,24 @@ func ReadinessHandler(lifecycleMgr *lifecycle.Manager) gin.HandlerFunc {
 
 // LivenessHandler handles liveness probe requests
 // Returns OK as long as application is not completely shut down
+// Supports both GET and HEAD methods for health checks
 func LivenessHandler(lifecycleMgr *lifecycle.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state := lifecycleMgr.GetState()
 		if state == lifecycle.StateShutdown {
+			if c.Request.Method == "HEAD" {
+				c.Status(http.StatusServiceUnavailable)
+				return
+			}
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"status": "shutdown",
 				"state":  state.String(),
 			})
 		} else {
+			if c.Request.Method == "HEAD" {
+				c.Status(http.StatusOK)
+				return
+			}
 			c.JSON(http.StatusOK, gin.H{
 				"status": "alive",
 				"state":  state.String(),
