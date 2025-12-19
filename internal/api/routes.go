@@ -39,9 +39,13 @@ func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager) {
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// Health check routes (liveness and readiness)
+	// Support both GET and HEAD methods for health checks
 	router.GET("/health", HealthHandler(lifecycleMgr))
+	router.HEAD("/health", HealthHandler(lifecycleMgr))
 	router.GET("/ready", ReadinessHandler(lifecycleMgr))
+	router.HEAD("/ready", ReadinessHandler(lifecycleMgr))
 	router.GET("/live", LivenessHandler(lifecycleMgr))
+	router.HEAD("/live", LivenessHandler(lifecycleMgr))
 
 	// Hello routes
 	router.GET("/hello", HelloHandler)
