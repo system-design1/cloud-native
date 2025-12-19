@@ -137,9 +137,9 @@ docker-compose restart postgres
 
 حالا که پروژه را راه‌اندازی کردید:
 
-1. **مستندات کامل**: [README.md](./README.md) را بخوانید
+1. **مستندات کامل**: [README.md](../README.md) را بخوانید
 2. **Development**: برای development فعال، [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) را ببینید
-3. **API Endpoints**: لیست کامل endpoints در [README.md](./README.md#-api-endpoints)
+3. **API Endpoints**: لیست کامل endpoints در [README.md](../README.md#-api-endpoints)
 
 ---
 
@@ -164,7 +164,7 @@ A: کد را در editor خود تغییر دهید، سپس `make docker-up-reb
 A: برای development فعال، از `make dev-run` استفاده کنید (نیاز به Go دارد).
 
 **Q: چطور API را تست کنم؟**
-A: از `curl` یا Postman استفاده کنید. مثال‌ها در [README.md](./README.md#-api-endpoints) است.
+A: از `curl` یا Postman استفاده کنید. مثال‌ها در [README.md](../README.md#-api-endpoints) است.
 
 ---
 

@@ -162,7 +162,7 @@ make observability-up
    {container="go-backend-api"}
    ```
 
-برای جزئیات کامل، به [LOKI_GUIDE.md](LOKI_GUIDE.md) مراجعه کنید.
+برای جزئیات کامل، به [LOKI_GUIDE.md](./LOKI_GUIDE.md) مراجعه کنید.
 
 ---
 
@@ -281,6 +281,6 @@ docker logs go-backend-api > logs.txt
 
 ## 📚 مستندات بیشتر
 
-- **[LOKI_GUIDE.md](LOKI_GUIDE.md)**: راهنمای کامل استفاده از Loki
-- **[OBSERVABILITY.md](OBSERVABILITY.md)**: راهنمای کامل Observability
+- **[LOKI_GUIDE.md](./LOKI_GUIDE.md)**: راهنمای کامل استفاده از Loki
+- **[OBSERVABILITY.md](./OBSERVABILITY.md)**: راهنمای کامل Observability
 

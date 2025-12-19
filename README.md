@@ -114,7 +114,17 @@ sdgo/
 │
 ├── configs/                  # فایل‌های configuration
 │   ├── prometheus.yml        # Prometheus config
-│   └── tempo.yaml            # Tempo config
+│   ├── tempo.yaml            # Tempo config
+│   ├── loki/                 # Loki configs
+│   └── promtail/             # Promtail configs
+│
+├── docs/                     # مستندات پروژه
+│   ├── QUICK_START.md        # راهنمای سریع
+│   ├── LOCAL_DEVELOPMENT.md  # راهنمای development
+│   ├── OBSERVABILITY.md      # راهنمای Observability
+│   ├── LOKI_GUIDE.md         # راهنمای Loki
+│   ├── PROMETHEUS_GUIDE.md   # راهنمای Prometheus
+│   └── ...                   # سایر مستندات
 │
 ├── docker-compose.yml        # Docker Compose برای production
 ├── docker-compose.dev.yml    # Docker Compose برای development DB
@@ -470,18 +480,39 @@ make observability-up-rebuild
    {container="go-backend-api"}
    ```
 
-برای راهنمای کامل، به [OBSERVABILITY.md](./OBSERVABILITY.md) و [LOKI_GUIDE.md](./LOKI_GUIDE.md) مراجعه کنید.
+برای راهنمای کامل، به [OBSERVABILITY.md](./docs/OBSERVABILITY.md) و [LOKI_GUIDE.md](./docs/LOKI_GUIDE.md) مراجعه کنید.
 
 ---
 
 ## 📚 مستندات بیشتر
 
-- **[LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md)**: راهنمای کامل development محلی
-- **[VSCODE_DEBUG.md](./VSCODE_DEBUG.md)**: راهنمای debug با VS Code
-- **[OBSERVABILITY.md](./OBSERVABILITY.md)**: راهنمای کامل Observability
-- **[LOKI_GUIDE.md](./LOKI_GUIDE.md)**: راهنمای کامل Loki و Central Logging
-- **[LOGGING_GUIDE.md](./LOGGING_GUIDE.md)**: راهنمای مشاهده و مدیریت لاگ‌ها
-- **[RUN_GUIDE.md](./RUN_GUIDE.md)**: راهنمای اجرا (قدیمی)
+تمام مستندات در پوشه [`docs/`](./docs/) قرار دارند:
+
+### راهنماهای اصلی
+- **[QUICK_START.md](./docs/QUICK_START.md)**: راهنمای سریع شروع کار
+- **[LOCAL_DEVELOPMENT.md](./docs/LOCAL_DEVELOPMENT.md)**: راهنمای کامل development محلی
+- **[TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)**: راهنمای عیب‌یابی مشکلات رایج
+
+### Observability
+- **[OBSERVABILITY.md](./docs/OBSERVABILITY.md)**: راهنمای کامل Observability (Tempo, Prometheus, Grafana)
+- **[LOKI_GUIDE.md](./docs/LOKI_GUIDE.md)**: راهنمای کامل Loki و Central Logging
+- **[LOGGING_GUIDE.md](./docs/LOGGING_GUIDE.md)**: راهنمای مشاهده و مدیریت لاگ‌ها
+- **[PROMETHEUS_GUIDE.md](./docs/PROMETHEUS_GUIDE.md)**: راهنمای مشاهده Metrics در Grafana
+- **[TEMPO_GUIDE.md](./docs/TEMPO_GUIDE.md)**: راهنمای کامل Tempo و مشاهده Traces
+- **[TEMPO_QUICK_START.md](./docs/TEMPO_QUICK_START.md)**: راهنمای سریع Tempo
+
+### Development & Debugging
+- **[VSCODE_DEBUG_GUIDE.md](./docs/VSCODE_DEBUG_GUIDE.md)**: راهنمای کامل debug با VS Code
+- **[VSCODE_DEBUG.md](./docs/VSCODE_DEBUG.md)**: راهنمای debug با VS Code (نسخه قدیمی)
+- **[DEBUG_TIMEOUT_FIX.md](./docs/DEBUG_TIMEOUT_FIX.md)**: راهنمای رفع مشکل Timeout در Debug
+- **[DEBUG_TIPS.md](./docs/DEBUG_TIPS.md)**: نکات و ترفندهای Debug
+
+### Docker & Infrastructure
+- **[DOCKER_VERSIONING.md](./docs/DOCKER_VERSIONING.md)**: راهنمای Versioning در Docker Images
+- **[DOCKER_BUILD_FIX.md](./docs/DOCKER_BUILD_FIX.md)**: راهنمای رفع مشکلات Docker Build
+
+### سایر
+- **[RUN_GUIDE.md](./docs/RUN_GUIDE.md)**: راهنمای اجرا (قدیمی - برای مرجع)
 
 ---
 
