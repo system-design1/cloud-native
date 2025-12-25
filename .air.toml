@@ -7,6 +7,7 @@ tmp_dir = "tmp"
   bin = "./bin/go-backend-service"
   cmd = "go build -o ./bin/go-backend-service ./cmd/server"
   delay = 1000
+  env = []
   exclude_dir = ["assets", "tmp", "vendor", "testdata", "bin"]
   exclude_file = []
   exclude_regex = ["_test.go"]
@@ -38,6 +39,9 @@ tmp_dir = "tmp"
 
 [misc]
   clean_on_exit = false
+
+# Load environment variables from .env file
+# Air will automatically load .env file if it exists
 
 [screen]
   clear_on_rebuild = false

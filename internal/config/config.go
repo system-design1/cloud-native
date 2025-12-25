@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,17 @@ type TracingConfig struct {
 	TempoEnabled   bool   `koanf:"tempo_enabled"`
 	JaegerEndpoint string `koanf:"jaeger_endpoint"`
 	JaegerEnabled  bool   `koanf:"jaeger_enabled"`
+	RoutePolicy    RoutePolicyConfig
+}
+
+// RoutePolicyConfig holds route-based tracing policy configuration
+type RoutePolicyConfig struct {
+	Enabled       bool
+	AlwaysRoutes  []string
+	DropRoutes    []string
+	RatioRoutes   map[string]float64
+	DefaultPolicy string
+	DefaultRatio  float64
 }
 
 // ServerConfig holds server-related configuration
@@ -279,6 +291,12 @@ func loadTracingConfig(cfg *Config) error {
 	jaegerEnabledStr := os.Getenv("OTEL_JAEGER_ENABLED")
 	jaegerEnabled := jaegerEnabledStr == "true" || jaegerEnabledStr == "1"
 
+	// Load route policy configuration
+	routePolicy, err := loadRoutePolicyConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load route policy config: %w", err)
+	}
+
 	cfg.Tracing = TracingConfig{
 		Enabled:        enabled,
 		ServiceName:    serviceName,
@@ -287,9 +305,135 @@ func loadTracingConfig(cfg *Config) error {
 		TempoEnabled:   tempoEnabled,
 		JaegerEndpoint: jaegerEndpoint,
 		JaegerEnabled:  jaegerEnabled,
+		RoutePolicy:    routePolicy,
 	}
 
 	return nil
+}
+
+// loadRoutePolicyConfig loads and validates route policy configuration
+func loadRoutePolicyConfig() (RoutePolicyConfig, error) {
+	policy := RoutePolicyConfig{}
+
+	// Check if route policy is enabled
+	enabledStr := os.Getenv("OTEL_ROUTE_POLICY_ENABLED")
+	policy.Enabled = enabledStr == "true" || enabledStr == "1"
+
+	if !policy.Enabled {
+		// Return default config when disabled
+		return policy, nil
+	}
+
+	// Parse ALWAYS routes (comma-separated)
+	alwaysStr := os.Getenv("OTEL_ROUTE_ALWAYS")
+	if alwaysStr != "" {
+		policy.AlwaysRoutes = parseCommaSeparatedList(alwaysStr)
+	}
+
+	// Parse DROP routes (comma-separated)
+	dropStr := os.Getenv("OTEL_ROUTE_DROP")
+	if dropStr != "" {
+		policy.DropRoutes = parseCommaSeparatedList(dropStr)
+	}
+
+	// Parse RATIO routes (comma-separated path=ratio pairs)
+	ratioStr := os.Getenv("OTEL_ROUTE_RATIO")
+	if ratioStr != "" {
+		ratioMap, err := parseRatioRoutes(ratioStr)
+		if err != nil {
+			return policy, fmt.Errorf("invalid OTEL_ROUTE_RATIO: %w", err)
+		}
+		policy.RatioRoutes = ratioMap
+	} else {
+		policy.RatioRoutes = make(map[string]float64)
+	}
+
+	// Parse default policy
+	defaultPolicy := os.Getenv("OTEL_ROUTE_DEFAULT")
+	if defaultPolicy == "" {
+		defaultPolicy = "always" // Default to always
+	}
+	if defaultPolicy != "always" && defaultPolicy != "ratio" && defaultPolicy != "drop" {
+		return policy, fmt.Errorf("invalid OTEL_ROUTE_DEFAULT: must be 'always', 'ratio', or 'drop'")
+	}
+	policy.DefaultPolicy = defaultPolicy
+
+	// Parse default ratio (only used when default policy is 'ratio')
+	defaultRatioStr := os.Getenv("OTEL_ROUTE_DEFAULT_RATIO")
+	if defaultRatioStr == "" {
+		policy.DefaultRatio = 1.0 // Default to 100%
+	} else {
+		defaultRatio, err := strconv.ParseFloat(defaultRatioStr, 64)
+		if err != nil {
+			return policy, fmt.Errorf("invalid OTEL_ROUTE_DEFAULT_RATIO: %w", err)
+		}
+		if defaultRatio <= 0.0 || defaultRatio > 1.0 {
+			return policy, fmt.Errorf("OTEL_ROUTE_DEFAULT_RATIO must be between 0.0 and 1.0")
+		}
+		policy.DefaultRatio = defaultRatio
+	}
+
+	return policy, nil
+}
+
+// parseCommaSeparatedList parses a comma-separated list and trims spaces
+func parseCommaSeparatedList(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+
+	return result
+}
+
+// parseRatioRoutes parses comma-separated path=ratio pairs
+// Example: "/health=0.01,/live=0.01,/ready=0.01"
+func parseRatioRoutes(s string) (map[string]float64, error) {
+	result := make(map[string]float64)
+
+	if s == "" {
+		return result, nil
+	}
+
+	parts := strings.Split(s, ",")
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+
+		// Split by '=' to get path and ratio
+		kv := strings.SplitN(trimmed, "=", 2)
+		if len(kv) != 2 {
+			return nil, fmt.Errorf("invalid ratio format: %s (expected path=ratio)", trimmed)
+		}
+
+		path := strings.TrimSpace(kv[0])
+		ratioStr := strings.TrimSpace(kv[1])
+
+		ratio, err := strconv.ParseFloat(ratioStr, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ratio value for %s: %w", path, err)
+		}
+
+		// Validate ratio range
+		if ratio <= 0.0 || ratio > 1.0 {
+			return nil, fmt.Errorf("ratio for %s must be between 0.0 and 1.0, got %f", path, ratio)
+		}
+
+		result[path] = ratio
+	}
+
+	return result, nil
 }
 
 // Get returns the global configuration instance

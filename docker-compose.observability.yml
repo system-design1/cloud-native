@@ -53,6 +53,8 @@ services:
     networks:
       - observability-network
       - app-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Allow access to host machine from container
     restart: unless-stopped
 
   # Loki - Log Aggregation System
@@ -123,6 +125,9 @@ networks:
   observability-network:
     driver: bridge
   app-network:
-    external: true
-    name: sdgo_app-network
+    driver: bridge
+    # Note: This network will be created if it doesn't exist
+    # If you want to connect to an existing app-network from docker-compose.yml,
+    # first run: docker-compose up -d (to create the network)
+    # Then change this to: external: true, name: sdgo_app-network
 

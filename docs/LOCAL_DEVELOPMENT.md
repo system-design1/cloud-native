@@ -39,6 +39,12 @@ make dev-run
 
 این روش از `air` استفاده می‌کند که به صورت خودکار برنامه را با هر تغییر در کد rebuild و restart می‌کند.
 
+**نکته:** برای مشاهده traces در Jaeger/Tempo، باید:
+1. Observability stack را راه‌اندازی کنید: `make observability-up`
+2. (اختیاری) Health checker را اجرا کنید: `make dev-health-checker` (در terminal دیگر)
+   - این script به صورت خودکار `/health`, `/ready` و `/live` را هر 10 ثانیه call می‌کند
+   - Prometheus به صورت خودکار `/metrics` را scrape می‌کند
+
 ## دستورات مفید
 
 ### مدیریت دیتابیس
@@ -65,7 +71,33 @@ make test
 
 # فرمت کردن کد
 make fmt
+
+# اجرای health checker (برای ایجاد traces خودکار)
+make dev-health-checker
 ```
+
+### Health Checker (برای Local Development)
+
+وقتی از `make dev-run` استفاده می‌کنید، health endpoints (`/health`, `/ready`, `/live`) به صورت خودکار call نمی‌شوند (برخلاف Docker که health checks وجود دارند).
+
+برای ایجاد traces خودکار برای این endpoints:
+
+```bash
+# در یک terminal دیگر (بعد از make dev-run)
+make dev-health-checker
+```
+
+این script:
+- هر 10 ثانیه `/health`, `/ready` و `/live` را call می‌کند
+- باعث ایجاد traces در Jaeger/Tempo می‌شود
+- برای توقف: `Ctrl+C`
+
+**تنظیم interval:**
+```bash
+HEALTH_CHECK_INTERVAL=5 make dev-health-checker  # هر 5 ثانیه
+```
+
+**نکته:** Prometheus به صورت خودکار `/metrics` را scrape می‌کند (اگر observability stack راه‌اندازی شده باشد).
 
 ## تنظیمات Environment Variables
 
@@ -164,16 +196,43 @@ export PATH=$PATH:$(go env GOPATH)/bin
 ## مثال کامل
 
 ```bash
-# 1. راه‌اندازی اولیه
+# Terminal 1: راه‌اندازی اولیه
 make dev
 
-# 2. در ترمینال دیگر، اجرای برنامه با hot reload
+# Terminal 2: اجرای برنامه با hot reload
 make dev-run
 
-# 3. حالا می‌توانید کد را تغییر دهید و برنامه به صورت خودکار restart می‌شود
+# Terminal 3 (اختیاری): Observability stack (Jaeger/Tempo/Prometheus)
+make observability-up
 
-# 4. برای توقف
-# Ctrl+C برای توقف برنامه
-make dev-db-down  # برای توقف دیتابیس
+# Terminal 4 (اختیاری): Health checker (برای ایجاد traces خودکار)
+make dev-health-checker
+
+# حالا می‌توانید کد را تغییر دهید و برنامه به صورت خودکار restart می‌شود
+
+# برای توقف:
+# Terminal 2: Ctrl+C برای توقف برنامه
+# Terminal 4: Ctrl+C برای توقف health checker
+# Terminal 3: make observability-down
+# Terminal 1: make dev-db-down  # برای توقف دیتابیس
 ```
+
+## Observability در Local Development
+
+### Prometheus
+
+Prometheus به صورت خودکار `/metrics` را scrape می‌کند (هر 5 ثانیه) اگر:
+- Observability stack راه‌اندازی شده باشد: `make observability-up`
+- Prometheus config به `host.docker.internal:8080` دسترسی داشته باشد (به صورت خودکار تنظیم شده)
+
+### Health Endpoints
+
+برای ایجاد traces خودکار برای `/health`, `/ready` و `/live`:
+- از `make dev-health-checker` استفاده کنید (در terminal جداگانه)
+- یا به صورت دستی call کنید:
+  ```bash
+  curl http://localhost:8080/health
+  curl http://localhost:8080/ready
+  curl http://localhost:8080/live
+  ```
 

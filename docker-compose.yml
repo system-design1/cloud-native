@@ -62,10 +62,20 @@ services:
       OTEL_SERVICE_VERSION: ${OTEL_SERVICE_VERSION:-1.0.0}
       # Tempo Configuration (برای مشاهده traces در Grafana)
       OTEL_TEMPO_ENABLED: ${OTEL_TEMPO_ENABLED:-true}
-      OTEL_TEMPO_ENDPOINT: ${OTEL_TEMPO_ENDPOINT:-tempo:4318}
+      # In Docker, use service name instead of localhost
+      OTEL_TEMPO_ENDPOINT: tempo:4318
       # Jaeger Configuration (می‌توانید هر دو را فعال نگه دارید)
       OTEL_JAEGER_ENABLED: ${OTEL_JAEGER_ENABLED:-true}
-      OTEL_JAEGER_ENDPOINT: ${OTEL_JAEGER_ENDPOINT:-jaeger:4318}
+      # In Docker, use service name instead of localhost
+      OTEL_JAEGER_ENDPOINT: jaeger:4318
+      
+      # Route-Based Tracing Policy Configuration
+      OTEL_ROUTE_POLICY_ENABLED: ${OTEL_ROUTE_POLICY_ENABLED:-true}
+      OTEL_ROUTE_ALWAYS: ${OTEL_ROUTE_ALWAYS:-/delayed-hello,/test-error}
+      OTEL_ROUTE_DROP: ${OTEL_ROUTE_DROP:-/metrics}
+      OTEL_ROUTE_RATIO: ${OTEL_ROUTE_RATIO:-/health=0.01,/live=0.01,/ready=0.01}
+      OTEL_ROUTE_DEFAULT: ${OTEL_ROUTE_DEFAULT:-always}
+      OTEL_ROUTE_DEFAULT_RATIO: ${OTEL_ROUTE_DEFAULT_RATIO:-1.0}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
