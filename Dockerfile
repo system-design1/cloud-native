@@ -3,10 +3,17 @@
 FROM golang:1.25-alpine AS builder
 
 # Install build dependencies
-# Simple approach: try update, if fails continue anyway (packages might be cached)
-RUN apk update --no-cache || true && \
-    apk add --no-cache git make || \
-    (sleep 2 && apk update --no-cache && apk add --no-cache git make)
+# Use retry logic with multiple mirrors to handle network issues
+RUN for mirror in http://dl-cdn.alpinelinux.org/alpine http://mirror1.hs-esslingen.de/pub/Mirrors/alpine http://alpine.mirror.far.fi; do \
+        echo "Trying mirror: $mirror" && \
+        sed -i "s|http://dl-cdn.alpinelinux.org/alpine|$mirror|g" /etc/apk/repositories 2>/dev/null || true && \
+        apk update --no-cache && \
+        apk add --no-cache git make && \
+        break || continue; \
+    done || \
+    (echo "All mirrors failed, trying default" && \
+     apk update --no-cache && \
+     apk add --no-cache git make)
 
 # Set working directory
 WORKDIR /build
@@ -40,10 +47,17 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.20
 
 # Install ca-certificates and wget for healthcheck
-# Simple approach: try update, if fails continue anyway (packages might be cached)
-RUN apk update --no-cache || true && \
-    apk add --no-cache ca-certificates wget || \
-    (sleep 2 && apk update --no-cache && apk add --no-cache ca-certificates wget) && \
+# Use retry logic with multiple mirrors to handle network issues
+RUN for mirror in http://dl-cdn.alpinelinux.org/alpine http://mirror1.hs-esslingen.de/pub/Mirrors/alpine http://alpine.mirror.far.fi; do \
+        echo "Trying mirror: $mirror" && \
+        sed -i "s|http://dl-cdn.alpinelinux.org/alpine|$mirror|g" /etc/apk/repositories 2>/dev/null || true && \
+        apk update --no-cache && \
+        apk add --no-cache ca-certificates wget && \
+        break || continue; \
+    done || \
+    (echo "All mirrors failed, trying default" && \
+     apk update --no-cache && \
+     apk add --no-cache ca-certificates wget) && \
     rm -rf /var/cache/apk/*
 
 # Create non-root user

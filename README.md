@@ -225,6 +225,23 @@ docker-compose up -d api
 docker-compose up -d --build api
 ```
 
+#### 📋 راهنمای Rebuild: چه زمانی چه چیزی باید rebuild شود؟
+
+| نوع تغییر | دستور Rebuild | توضیحات |
+|-----------|---------------|---------|
+| **تغییرات در کد Go** (مثل handlers, middleware, config) | `make docker-up-rebuild` | فقط container `api` باید rebuild شود |
+| **تغییرات در Dockerfile** | `make docker-up-rebuild` | فقط container `api` باید rebuild شود |
+| **تغییرات در docker-compose.yml** | `make docker-up-rebuild` | فقط container `api` باید rebuild شود |
+| **تغییرات در .env** (environment variables) | `docker-compose restart api` | فقط restart کافی است (بدون rebuild) |
+| **تغییرات در configs/tempo.yaml** | `make observability-up-rebuild` | فقط observability stack |
+| **تغییرات در configs/prometheus.yml** | `make observability-up-rebuild` | فقط observability stack |
+| **تغییرات در configs/loki/** یا **configs/promtail/** | `make observability-up-rebuild` | فقط observability stack |
+| **تغییرات در docker-compose.observability.yml** | `make observability-up-rebuild` | فقط observability stack |
+
+**نکته مهم:** 
+- تغییرات در کد Go **نیازی به rebuild observability stack ندارد**
+- تغییرات در config files observability **نیازی به rebuild application ندارد**
+
 ### روش 2: اجرای محلی با Hot Reload (برای Development)
 
 این روش برای development بهتر است چون با هر تغییر کد، خودکار rebuild می‌شود.
@@ -259,13 +276,33 @@ make run
 
 **نکته:** `make dev-run` از `air` استفاده می‌کند که به صورت خودکار نصب می‌شود.
 
-#### مرحله 4: توقف
+#### مرحله 4: Observability (اختیاری)
+
+برای مشاهده traces در Jaeger/Tempo:
 
 ```bash
-# توقف دیتابیس
-make dev-db-down
+# Terminal 1: Application (از مرحله 3)
+make dev-run
 
-# توقف برنامه: Ctrl+C
+# Terminal 2: Observability stack
+make observability-up
+
+# Terminal 3: Health checker (برای ایجاد traces خودکار)
+make dev-health-checker
+```
+
+**توضیحات:**
+- **Prometheus**: به صورت خودکار `/metrics` را scrape می‌کند (هر 5 ثانیه)
+- **Health Checker**: به صورت خودکار `/health`, `/ready` و `/live` را call می‌کند (هر 10 ثانیه)
+- برای توقف health checker: `Ctrl+C`
+
+#### مرحله 5: توقف
+
+```bash
+# توقف برنامه: Ctrl+C (در terminal که make dev-run اجرا شده)
+# توقف health checker: Ctrl+C (در terminal که make dev-health-checker اجرا شده)
+# توقف observability: make observability-down
+# توقف دیتابیس: make dev-db-down
 ```
 
 ### مقایسه روش‌ها
@@ -417,6 +454,7 @@ make dev              # راه‌اندازی کامل محیط dev
 make dev-setup        # ایجاد .env
 make dev-db-up        # راه‌اندازی دیتابیس
 make dev-run          # اجرا با hot reload
+make dev-health-checker  # اجرای health checker (برای ایجاد traces خودکار)
 make run              # اجرای ساده
 
 # Docker
@@ -481,6 +519,78 @@ make observability-up-rebuild
    ```
 
 برای راهنمای کامل، به [OBSERVABILITY.md](./docs/OBSERVABILITY.md) و [LOKI_GUIDE.md](./docs/LOKI_GUIDE.md) مراجعه کنید.
+
+### Route-Based Tracing Policy (Always/Ratio/Drop)
+
+این پروژه از **Route-Based Tracing Policy** پشتیبانی می‌کند که به شما امکان کنترل sampling traces بر اساس route را می‌دهد. این قابلیت برای کاهش noise در Jaeger/Tempo و تمرکز روی traces مهم مفید است.
+
+#### سه نوع Policy
+
+1. **ALWAYS**: همیشه trace می‌شود
+   - برای endpoints مهم که می‌خواهید همیشه trace شوند
+   - مثال: `/delayed-hello`, `/test-error`
+
+2. **RATIO**: با احتمال مشخص trace می‌شود
+   - برای endpoints پرترافیک که می‌خواهید گاهی trace شوند
+   - مثال: `/health=0.01` (1% از requests)
+   - مقدار باید بین `0.0` و `1.0` باشد
+
+3. **DROP**: هرگز trace نمی‌شود
+   - برای endpoints پرترافیک که نمی‌خواهید trace شوند
+   - مثال: `/metrics`
+
+#### ترتیب اولویت (Precedence)
+
+1. **DROP** (بالاترین اولویت)
+2. **ALWAYS**
+3. **RATIO**
+4. **DEFAULT** policy
+
+#### تنظیمات پیش‌فرض (Demo-friendly)
+
+با تنظیمات پیش‌فرض:
+- `/delayed-hello` و `/test-error`: همیشه trace می‌شوند
+- `/health`, `/live`, `/ready`: 1% از requests trace می‌شوند
+- `/metrics`: trace نمی‌شود (DROP)
+
+#### مثال Configuration
+
+```env
+# فعال‌سازی route-based policy
+OTEL_ROUTE_POLICY_ENABLED=true
+
+# Routes که همیشه trace می‌شوند
+OTEL_ROUTE_ALWAYS=/delayed-hello,/test-error
+
+# Routes که هرگز trace نمی‌شوند
+OTEL_ROUTE_DROP=/metrics
+
+# Routes با sampling ratio
+OTEL_ROUTE_RATIO=/health=0.01,/live=0.01,/ready=0.01
+
+# Default policy برای routes دیگر
+OTEL_ROUTE_DEFAULT=always
+
+# Default ratio (فقط برای OTEL_ROUTE_DEFAULT=ratio)
+OTEL_ROUTE_DEFAULT_RATIO=1.0
+```
+
+#### غیرفعال کردن Policy
+
+برای غیرفعال کردن policy و استفاده از رفتار پیش‌فرض (sample همه traces):
+
+```env
+OTEL_ROUTE_POLICY_ENABLED=false
+```
+
+#### نکات مهم
+
+- Policy فقط زمانی اعمال می‌شود که `OTEL_ROUTE_POLICY_ENABLED=true` باشد
+- وقتی policy غیرفعال است، همه traces sample می‌شوند (رفتار پیش‌فرض)
+- برای debugging، می‌توانید policy را غیرفعال کنید تا همه traces را ببینید
+- Routes با query string هم درست کار می‌کنند (فقط path بررسی می‌شود)
+
+برای جزئیات بیشتر، به [OBSERVABILITY.md](./docs/OBSERVABILITY.md) مراجعه کنید.
 
 ---
 

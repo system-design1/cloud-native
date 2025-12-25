@@ -60,10 +60,21 @@ func TracingContextMiddleware() gin.HandlerFunc {
 
 		c.Next()
 
-		// After request is processed, add response status code
+		// After request is processed, update span name and add response attributes
 		span = trace.SpanFromContext(c.Request.Context())
 		if span.IsRecording() {
+			// Update span name to include route path (now available after route matching)
+			route := c.FullPath()
+			if route == "" {
+				// If route is not matched (404), use the request path
+				route = c.Request.URL.Path
+			}
+			// Update span name to "METHOD /path" format
+			spanName := c.Request.Method + " " + route
+			span.SetName(spanName)
+			
 			span.SetAttributes(
+				attribute.String("http.route", route),
 				attribute.Int("http.status_code", c.Writer.Status()),
 				attribute.Int("http.response.size", c.Writer.Size()),
 			)

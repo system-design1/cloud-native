@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"strings"
 
 	"go-backend-service/internal/config"
+	"go-backend-service/internal/logger"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -46,12 +49,74 @@ func Init(cfg *config.Config) error {
 
 	var exporters []sdktrace.SpanExporter
 
+	// Helper function to normalize endpoint for Docker
+	normalizeEndpoint := func(endpoint string, defaultService string) string {
+		originalEndpoint := endpoint
+		
+		// If endpoint starts with http:// or https://, extract host:port
+		if parsedURL, err := url.Parse(endpoint); err == nil && (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
+			endpoint = parsedURL.Host
+		}
+		
+		// Detect if we're running in Docker by checking HOSTNAME
+		// In Docker containers, HOSTNAME is usually a container ID (12 hex chars) or container name
+		isDockerEnv := false
+		hostname := os.Getenv("HOSTNAME")
+		if hostname != "" {
+			// Container IDs are 12 hex characters (like "78dec8ce8710")
+			// Check if it's exactly 12 chars and looks like hex
+			if len(hostname) == 12 {
+				// Simple check: if it's 12 chars, it's likely a container ID
+				isDockerEnv = true
+			} else if strings.Contains(hostname, "-") && len(hostname) < 30 {
+				// Container names usually contain hyphens (like "go-backend-api")
+				isDockerEnv = true
+			}
+		}
+		
+		// Debug log (always log to see what's happening)
+		log := logger.Get()
+		log.Info().
+			Str("endpoint", endpoint).
+			Str("hostname", hostname).
+			Bool("is_docker", isDockerEnv).
+			Str("service", defaultService).
+			Msg("Normalizing endpoint")
+		
+		// If in Docker and endpoint contains localhost, replace with service name
+		if isDockerEnv && strings.Contains(endpoint, "localhost") {
+			// Replace localhost with service name, keep port
+			if strings.Contains(endpoint, ":") {
+				parts := strings.Split(endpoint, ":")
+				if len(parts) == 2 {
+					endpoint = defaultService + ":" + parts[1]
+				} else {
+					endpoint = defaultService + ":4318"
+				}
+			} else {
+				endpoint = defaultService + ":4318"
+			}
+			
+			// Log the normalization
+			log := logger.Get()
+			log.Info().
+				Str("original_endpoint", originalEndpoint).
+				Str("normalized_endpoint", endpoint).
+				Str("service", defaultService).
+				Str("hostname", hostname).
+				Bool("is_docker", isDockerEnv).
+				Msg("Endpoint normalized for Docker")
+		}
+		
+		return endpoint
+	}
+
 	// Setup exporter(s) based on configuration
 	// Support multiple exporters (Tempo and/or Jaeger)
 	if cfg.Tracing.TempoEnabled && cfg.Tracing.TempoEndpoint != "" {
-		// Use OTLP HTTP exporter for Tempo
+		tempoEndpoint := normalizeEndpoint(cfg.Tracing.TempoEndpoint, "tempo")
 		tempoExporter, err := otlptracehttp.New(ctx,
-			otlptracehttp.WithEndpoint(cfg.Tracing.TempoEndpoint),
+			otlptracehttp.WithEndpoint(tempoEndpoint),
 			otlptracehttp.WithInsecure(), // Use WithInsecure for development, use WithTLSClientConfig for production
 		)
 		if err != nil {
@@ -61,32 +126,7 @@ func Init(cfg *config.Config) error {
 	}
 
 	if cfg.Tracing.JaegerEnabled && cfg.Tracing.JaegerEndpoint != "" {
-		// Parse Jaeger endpoint - support both OTLP format (host:port) and HTTP format (http://host:port/path)
-		jaegerEndpoint := cfg.Tracing.JaegerEndpoint
-		
-		// If endpoint starts with http:// or https://, extract host:port
-		if parsedURL, err := url.Parse(jaegerEndpoint); err == nil && (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") {
-			jaegerEndpoint = parsedURL.Host
-		}
-		
-		// Replace localhost with jaeger for Docker Compose environments
-		// From inside a container, localhost refers to the container itself, not the host
-		// So we need to use the service name "jaeger" to connect to Jaeger container
-		// Check if endpoint contains localhost (with or without port)
-		if jaegerEndpoint == "localhost" || 
-		   jaegerEndpoint == "localhost:4320" || 
-		   jaegerEndpoint == "localhost:4318" ||
-		   (len(jaegerEndpoint) > 9 && jaegerEndpoint[:9] == "localhost:") {
-			// Replace localhost with jaeger and use port 4318 (OTLP HTTP port inside container)
-			jaegerEndpoint = "jaeger:4318"
-		} else if jaegerEndpoint == "" || jaegerEndpoint == "jaeger" {
-			// Default to OTLP port
-			jaegerEndpoint = "jaeger:4318"
-		}
-		
-		// Log the final endpoint for debugging (remove in production)
-		// fmt.Printf("DEBUG: Jaeger endpoint configured as: %s\n", jaegerEndpoint)
-		
+		jaegerEndpoint := normalizeEndpoint(cfg.Tracing.JaegerEndpoint, "jaeger")
 		jaegerExporter, err := otlptracehttp.New(ctx,
 			otlptracehttp.WithEndpoint(jaegerEndpoint),
 			otlptracehttp.WithInsecure(), // Use WithInsecure for development
@@ -105,8 +145,39 @@ func Init(cfg *config.Config) error {
 	// Create tracer provider with all exporters
 	opts := []sdktrace.TracerProviderOption{
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()), // Sample all traces
 	}
+
+	// Configure sampler based on route policy
+	var sampler sdktrace.Sampler
+	log := logger.Get()
+	if cfg.Tracing.RoutePolicy.Enabled {
+		// Use route-based policy sampler
+		log.Info().
+			Strs("always_routes", cfg.Tracing.RoutePolicy.AlwaysRoutes).
+			Strs("drop_routes", cfg.Tracing.RoutePolicy.DropRoutes).
+			Str("default_policy", cfg.Tracing.RoutePolicy.DefaultPolicy).
+			Msg("Route-based tracing policy enabled")
+		
+		routeSampler := NewRoutePolicySampler(
+			cfg.Tracing.RoutePolicy.AlwaysRoutes,
+			cfg.Tracing.RoutePolicy.DropRoutes,
+			cfg.Tracing.RoutePolicy.RatioRoutes,
+			cfg.Tracing.RoutePolicy.DefaultPolicy,
+			cfg.Tracing.RoutePolicy.DefaultRatio,
+		)
+		// Use ParentBased to ensure parent-child consistency
+		// For root spans (HTTP requests without parent), ParentBased uses the root sampler (routeSampler)
+		// For child spans, if parent is sampled, child is also sampled (preserves trace integrity)
+		sampler = sdktrace.ParentBased(routeSampler)
+	} else {
+		// Default behavior: sample all traces
+		// When route policy is disabled, use AlwaysSample directly
+		// ParentBased is not needed here since we want to sample everything
+		log.Info().Msg("Route-based tracing policy disabled, using AlwaysSample")
+		sampler = sdktrace.AlwaysSample()
+	}
+
+	opts = append(opts, sdktrace.WithSampler(sampler))
 
 	// Add batchers for each exporter
 	for _, exporter := range exporters {

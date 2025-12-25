@@ -120,6 +120,15 @@ dev-run: ## Run the app locally with hot reload using air (requires air: go inst
 		fi \
 	fi
 
+# Run health checker for local development (calls /health, /ready, /live periodically)
+.PHONY: dev-health-checker
+dev-health-checker: ## Run health checker to automatically call health endpoints (for local dev)
+	@if [ ! -f scripts/health-checker.sh ]; then \
+		echo "Error: scripts/health-checker.sh not found."; \
+		exit 1; \
+	fi
+	@bash scripts/health-checker.sh
+
 # Complete local development setup: database + app
 .PHONY: dev
 dev: dev-setup dev-db-up ## Complete local dev setup: create .env, start database, and show instructions
