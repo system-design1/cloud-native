@@ -50,6 +50,7 @@ func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager) {
 	// Hello routes
 	router.GET("/hello", HelloHandler)
 	router.GET("/delayed-hello", DelayedHelloHandler)
+	router.GET("/child-hello", ChildHelloHandler)
 
 	// Test routes
 	router.GET("/test-error", TestErrorHandler)
