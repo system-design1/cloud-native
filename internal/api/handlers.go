@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -11,7 +12,11 @@ import (
 	apperrors "go-backend-service/pkg/errors"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+var tracer = otel.Tracer("go-backend-service")
 
 // HealthHandler handles health check requests (backward compatibility)
 // Returns OK if application is ready, Service Unavailable if shutting down
@@ -116,4 +121,49 @@ func DelayedHelloHandler(c *gin.Context) {
 func TestErrorHandler(c *gin.Context) {
 	middleware.ErrorHandler(c, apperrors.ErrBadRequest("This is a test error"))
 	c.Abort()
+}
+
+func ChildHelloHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// 1) child span برای خود handler
+	ctx, span := tracer.Start(ctx, "handler.delayed_hello")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("http.route", "/child-hello"),
+	)
+
+	// 2) شبیه‌سازی DB
+	ctx = simulateDB(ctx)
+
+	// 3) شبیه‌سازی call خارجی
+	ctx = simulateExternal(ctx)
+
+	// 4) تاخیر اصلی (اگر خواستی، این را هم span کن)
+	d := time.Duration(1+rand.Intn(3)) * time.Second
+	_, sleepSpan := tracer.Start(ctx, "sleep.random_delay")
+	time.Sleep(d)
+	sleepSpan.SetAttributes(attribute.Int64("sleep.ms", d.Milliseconds()))
+	sleepSpan.End()
+
+	c.JSON(200, gin.H{"message": "delayed hello", "delay": d.String()})
+}
+
+func simulateDB(ctx context.Context) context.Context {
+	ctx, span := tracer.Start(ctx, "db.query.fake")
+	defer span.End()
+
+	time.Sleep(120 * time.Millisecond)
+	span.SetAttributes(attribute.String("db.system", "postgres"), attribute.String("db.operation", "SELECT"))
+	return ctx
+}
+
+func simulateExternal(ctx context.Context) context.Context {
+	ctx, span := tracer.Start(ctx, "http.client.fake_call")
+	defer span.End()
+
+	time.Sleep(220 * time.Millisecond)
+	span.SetAttributes(attribute.String("peer.service", "downstream-mock"))
+	return ctx
 }
