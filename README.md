@@ -121,7 +121,10 @@ sdgo/
 ├── docs/                     # مستندات پروژه
 │   ├── QUICK_START.md        # راهنمای سریع
 │   ├── LOCAL_DEVELOPMENT.md  # راهنمای development
+│   ├── LOAD_TESTING_K6_HELLO_CONCURRENCY.md  # راهنمای تست بار همزمانی
+│   ├── LOAD_TESTING_TRACING_SAMPLING.md  # راهنمای sampling برای load testing
 │   ├── OBSERVABILITY.md      # راهنمای Observability
+│   ├── OBSERVABILITY_RESET.md  # راهنمای reset کردن observability stack
 │   ├── LOKI_GUIDE.md         # راهنمای Loki
 │   ├── PROMETHEUS_GUIDE.md   # راهنمای Prometheus
 │   └── ...                   # سایر مستندات
@@ -603,8 +606,13 @@ OTEL_ROUTE_POLICY_ENABLED=false
 - **[LOCAL_DEVELOPMENT.md](./docs/LOCAL_DEVELOPMENT.md)**: راهنمای کامل development محلی
 - **[TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)**: راهنمای عیب‌یابی مشکلات رایج
 
+### Load Testing
+- **[LOAD_TESTING_K6_HELLO_CONCURRENCY.md](./docs/LOAD_TESTING_K6_HELLO_CONCURRENCY.md)**: راهنمای کامل تست بار همزمانی با k6 برای endpoint `/hello`
+- **[LOAD_TESTING_TRACING_SAMPLING.md](./docs/LOAD_TESTING_TRACING_SAMPLING.md)**: راهنمای جلوگیری از overload شدن Jaeger/Tempo در طول تست‌های با بار بالا با تنظیم sampling policy
+
 ### Observability
 - **[OBSERVABILITY.md](./docs/OBSERVABILITY.md)**: راهنمای کامل Observability (Tempo, Prometheus, Grafana)
+- **[OBSERVABILITY_RESET.md](./docs/OBSERVABILITY_RESET.md)**: راهنمای reset کردن observability stack و بازیابی Jaeger بعد از تست‌های با بار بالا
 - **[LOKI_GUIDE.md](./docs/LOKI_GUIDE.md)**: راهنمای کامل Loki و Central Logging
 - **[LOGGING_GUIDE.md](./docs/LOGGING_GUIDE.md)**: راهنمای مشاهده و مدیریت لاگ‌ها
 - **[PROMETHEUS_GUIDE.md](./docs/PROMETHEUS_GUIDE.md)**: راهنمای مشاهده Metrics در Grafana
