@@ -1,0 +1,16 @@
+TASK:
+<one action>
+
+INPUT:
+<minimum info>
+
+OUTPUT:
+<exact files>
+
+RULES:
+- No explanation
+- No analysis
+- Output only the result
+
+
+اسکریپت constant arrival rate

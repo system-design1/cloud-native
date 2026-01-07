@@ -5,11 +5,11 @@ export const options = {
   scenarios: {
     steady_rps: {
       executor: 'constant-arrival-rate',
-      rate: 500,          // هدف: 500 RPS
+      rate: 20500,          // هدف: 220000 RPS
       timeUnit: '1s',
-      duration: '1m',
-      preAllocatedVUs: 50,
-      maxVUs: 500,
+      duration: '2m',
+      preAllocatedVUs: 1000,
+      maxVUs: 3000,
     },
   },
   thresholds: {
