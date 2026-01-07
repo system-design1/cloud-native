@@ -337,6 +337,26 @@ observability-down-clean: ## Stop observability stack and remove volumes (WARNIN
 	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml down -v
 	@echo "Observability stack stopped and volumes removed"
 
+# Reset observability stack (stop, remove volumes, and restart)
+.PHONY: observability-reset
+observability-reset: ## Reset observability stack: stop, remove all data, and restart (WARNING: deletes all traces, metrics, dashboards)
+	@echo "WARNING: This will delete all observability data (traces, metrics, dashboards)"
+	@echo "Resetting observability stack..."
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml down -v
+	@echo "Starting observability stack from scratch..."
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d
+	@echo ""
+	@echo "=========================================="
+	@echo "Observability stack reset complete!"
+	@echo "=========================================="
+	@echo "Grafana:        http://localhost:3000 (admin/admin)"
+	@echo "Jaeger UI:      http://localhost:16686"
+	@echo "Prometheus:     http://localhost:9090"
+	@echo "Tempo API:      http://localhost:3200"
+	@echo "Loki API:       http://localhost:3100"
+	@echo ""
+	@echo "All previous data has been deleted. The stack is now clean and ready for new traces."
+
 # View observability logs
 .PHONY: observability-logs
 observability-logs: ## View observability stack logs
