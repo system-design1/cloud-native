@@ -54,4 +54,14 @@ func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager) {
 
 	// Test routes
 	router.GET("/test-error", TestErrorHandler)
+
+	// Versioned API routes
+	v1 := router.Group("/v1")
+	{
+		// OTP routes
+		otp := v1.Group("/otp")
+		{
+			otp.POST("/code", GenerateOTPCodeHandler)
+		}
+	}
 }
