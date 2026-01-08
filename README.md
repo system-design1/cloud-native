@@ -442,6 +442,29 @@ curl http://localhost:8080/metrics
 # # HELP http_request_duration_seconds Duration of HTTP requests...
 ```
 
+### Versioned API (v1)
+
+#### OTP Service
+
+**Phase 1: Generation only** (no persistence, no SMS, no verification)
+
+| Endpoint | Method | توضیحات |
+|----------|--------|---------|
+| `/v1/otp/code` | POST | Generate a 6-digit OTP code |
+
+**Response:**
+```json
+{
+  "code": "123456"
+}
+```
+
+**مثال:**
+```bash
+curl -X POST http://localhost:8080/v1/otp/code
+# {"code":"123456"}
+```
+
 ---
 
 ## 🎯 استفاده از Makefile
@@ -609,6 +632,7 @@ OTEL_ROUTE_POLICY_ENABLED=false
 ### Load Testing
 - **[LOAD_TESTING_K6_HELLO_CONCURRENCY.md](./docs/LOAD_TESTING_K6_HELLO_CONCURRENCY.md)**: راهنمای کامل تست بار همزمانی با k6 برای endpoint `/hello`
 - **[LOAD_TESTING_TRACING_SAMPLING.md](./docs/LOAD_TESTING_TRACING_SAMPLING.md)**: راهنمای جلوگیری از overload شدن Jaeger/Tempo در طول تست‌های با بار بالا با تنظیم sampling policy
+- **OTP Service – Performance Report (Phase 1, FA):** [OTP_Performance_Report_Phase1_FA.md](./docs/OTP_Performance_Report_Phase1_FA.md)
 
 ### Observability
 - **[OBSERVABILITY.md](./docs/OBSERVABILITY.md)**: راهنمای کامل Observability (Tempo, Prometheus, Grafana)

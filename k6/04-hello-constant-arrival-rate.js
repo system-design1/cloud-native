@@ -5,7 +5,7 @@ export const options = {
   scenarios: {
     steady_rps: {
       executor: 'constant-arrival-rate',
-      rate: 20500,          // هدف: 220000 RPS
+      rate: 20500,          // target: 20500 RPS
       timeUnit: '1s',
       duration: '2m',
       preAllocatedVUs: 1000,
