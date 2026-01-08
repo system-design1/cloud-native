@@ -56,15 +56,70 @@ func TestLoadServerConfig(t *testing.T) {
 }
 
 func TestLoadConfigMissingRequiredFields(t *testing.T) {
-	// Clear required environment variables
-	os.Unsetenv("DB_USER")
-	os.Unsetenv("DB_PASSWORD")
-	os.Unsetenv("DB_NAME")
+	// Clear required environment variables (DB now has defaults, but JWT still required)
 	os.Unsetenv("JWT_SECRET_KEY")
 
 	_, err := Load()
 	if err == nil {
 		t.Error("Expected error when required fields are missing, got nil")
+	}
+}
+
+func TestLoadDatabaseConfigWithDefaults(t *testing.T) {
+	// Set minimum required env vars (JWT, Server, etc.)
+	os.Setenv("SERVER_HOST", "127.0.0.1")
+	os.Setenv("SERVER_PORT", "3000")
+	os.Setenv("SERVER_READ_TIMEOUT", "15s")
+	os.Setenv("SERVER_WRITE_TIMEOUT", "15s")
+	os.Setenv("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT", "10s")
+	os.Setenv("JWT_SECRET_KEY", "test-secret-key")
+	os.Setenv("JWT_REFRESH_SECRET", "test-refresh-secret-key")
+	os.Setenv("JWT_EXPIRATION", "24h")
+	os.Setenv("GIN_MODE", "debug")
+
+	// Unset DB env vars to test defaults
+	os.Unsetenv("DB_HOST")
+	os.Unsetenv("DB_PORT")
+	os.Unsetenv("DB_USER")
+	os.Unsetenv("DB_PASSWORD")
+	os.Unsetenv("DB_NAME")
+	os.Unsetenv("DB_SSLMODE")
+
+	defer func() {
+		os.Unsetenv("SERVER_HOST")
+		os.Unsetenv("SERVER_PORT")
+		os.Unsetenv("SERVER_READ_TIMEOUT")
+		os.Unsetenv("SERVER_WRITE_TIMEOUT")
+		os.Unsetenv("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT")
+		os.Unsetenv("JWT_SECRET_KEY")
+		os.Unsetenv("JWT_REFRESH_SECRET")
+		os.Unsetenv("JWT_EXPIRATION")
+		os.Unsetenv("GIN_MODE")
+	}()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config with DB defaults: %v", err)
+	}
+
+	// Verify defaults are applied
+	if cfg.Database.Host != "localhost" {
+		t.Errorf("Expected DB_HOST default to be 'localhost', got %s", cfg.Database.Host)
+	}
+	if cfg.Database.Port != 5432 {
+		t.Errorf("Expected DB_PORT default to be 5432, got %d", cfg.Database.Port)
+	}
+	if cfg.Database.User != "postgres" {
+		t.Errorf("Expected DB_USER default to be 'postgres', got %s", cfg.Database.User)
+	}
+	if cfg.Database.Password != "postgres" {
+		t.Errorf("Expected DB_PASSWORD default to be 'postgres', got %s", cfg.Database.Password)
+	}
+	if cfg.Database.DatabaseName != "go_backend_db" {
+		t.Errorf("Expected DB_NAME default to be 'go_backend_db', got %s", cfg.Database.DatabaseName)
+	}
+	if cfg.Database.SSLMode != "disable" {
+		t.Errorf("Expected DB_SSLMODE default to be 'disable', got %s", cfg.Database.SSLMode)
 	}
 }
 

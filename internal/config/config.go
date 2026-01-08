@@ -174,15 +174,18 @@ func loadServerConfig(cfg *Config) error {
 }
 
 // loadDatabaseConfig loads and validates database configuration
+// Provides sensible defaults for local development
 func loadDatabaseConfig(cfg *Config) error {
+	// Default values for local development
+	// Use 127.0.0.1 instead of localhost to avoid IPv6 resolution issues
 	host := os.Getenv("DB_HOST")
 	if host == "" {
-		return fmt.Errorf("DB_HOST is required")
+		host = "127.0.0.1"
 	}
 
 	portStr := os.Getenv("DB_PORT")
 	if portStr == "" {
-		return fmt.Errorf("DB_PORT is required")
+		portStr = "5432"
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
@@ -191,22 +194,22 @@ func loadDatabaseConfig(cfg *Config) error {
 
 	user := os.Getenv("DB_USER")
 	if user == "" {
-		return fmt.Errorf("DB_USER is required")
+		user = "postgres"
 	}
 
 	password := os.Getenv("DB_PASSWORD")
 	if password == "" {
-		return fmt.Errorf("DB_PASSWORD is required")
+		password = "postgres"
 	}
 
 	dbName := os.Getenv("DB_NAME")
 	if dbName == "" {
-		return fmt.Errorf("DB_NAME is required")
+		dbName = "go_backend_db"
 	}
 
 	sslMode := os.Getenv("DB_SSLMODE")
 	if sslMode == "" {
-		return fmt.Errorf("DB_SSLMODE is required")
+		sslMode = "disable"
 	}
 
 	cfg.Database = DatabaseConfig{

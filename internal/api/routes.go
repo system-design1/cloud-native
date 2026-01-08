@@ -3,6 +3,7 @@ package api
 import (
 	"go-backend-service/internal/lifecycle"
 	"go-backend-service/internal/middleware"
+	"go-backend-service/internal/repository"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -34,7 +35,7 @@ func SetupMiddleware(router *gin.Engine) {
 }
 
 // SetupRoutes registers all routes with the router
-func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager) {
+func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSettingsRepo *repository.TenantSettingsRepository) {
 	// Prometheus metrics endpoint (must be before other routes to avoid middleware)
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
@@ -62,6 +63,8 @@ func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager) {
 		otp := v1.Group("/otp")
 		{
 			otp.POST("/code", GenerateOTPCodeHandler)
+			// Tenant settings routes
+			otp.GET("/tenant-settings/:id", GetTenantSettingsByIDHandler(tenantSettingsRepo))
 		}
 	}
 }

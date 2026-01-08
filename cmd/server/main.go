@@ -10,8 +10,10 @@ import (
 
 	"go-backend-service/internal/api"
 	"go-backend-service/internal/config"
+	"go-backend-service/internal/db"
 	"go-backend-service/internal/lifecycle"
 	"go-backend-service/internal/logger"
+	"go-backend-service/internal/repository"
 	"go-backend-service/internal/server"
 	"go-backend-service/internal/tracer"
 
@@ -42,6 +44,69 @@ func main() {
 		Int("db_port", cfg.Database.Port).
 		Str("db_name", cfg.Database.DatabaseName).
 		Msg("Configuration loaded successfully")
+
+	// Initialize database connection pool
+	log.Debug().Msg("Initializing database connection pool...")
+	database, err := db.NewConnectionPool(&cfg.Database)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize database connection pool")
+	}
+
+	// Verify database connectivity with ping (with retry mechanism)
+	log.Debug().
+		Str("host", cfg.Database.Host).
+		Int("port", cfg.Database.Port).
+		Str("database", cfg.Database.DatabaseName).
+		Msg("Verifying database connectivity...")
+
+	maxRetries := 10
+	retryDelay := 1 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err := db.Ping(pingCtx, database)
+		pingCancel()
+
+		if err == nil {
+			log.Info().
+				Int("attempt", i+1).
+				Msg("Database connection successful")
+			break
+		}
+
+		if i < maxRetries-1 {
+			log.Warn().
+				Err(err).
+				Int("attempt", i+1).
+				Int("max_retries", maxRetries).
+				Dur("retry_delay", retryDelay).
+				Str("host", cfg.Database.Host).
+				Int("port", cfg.Database.Port).
+				Msg("Database ping failed, retrying...")
+			time.Sleep(retryDelay)
+			if retryDelay < 5*time.Second {
+				retryDelay += 500 * time.Millisecond // Gradual increase instead of exponential
+			}
+		} else {
+			log.Fatal().
+				Err(err).
+				Int("total_attempts", maxRetries).
+				Str("host", cfg.Database.Host).
+				Int("port", cfg.Database.Port).
+				Str("database", cfg.Database.DatabaseName).
+				Msg("Failed to ping database after all retries. Make sure the database is running and accessible.")
+		}
+	}
+	log.Info().
+		Str("db_host", cfg.Database.Host).
+		Int("db_port", cfg.Database.Port).
+		Str("db_name", cfg.Database.DatabaseName).
+		Msg("Database connection pool initialized and verified successfully")
+
+	// Initialize repositories
+	log.Debug().Msg("Initializing repositories...")
+	tenantSettingsRepo := repository.NewTenantSettingsRepository(database)
+	log.Info().Msg("Repositories initialized successfully")
 
 	// Set Gin mode from configuration
 	gin.SetMode(cfg.App.GinMode)
@@ -79,9 +144,9 @@ func main() {
 	api.SetupMiddleware(router)
 	log.Info().Msg("Middleware setup completed")
 
-	// Setup routes (pass lifecycle manager for health endpoints)
+	// Setup routes (pass lifecycle manager and repositories)
 	log.Debug().Msg("Setting up routes...")
-	api.SetupRoutes(router, lifecycleMgr)
+	api.SetupRoutes(router, lifecycleMgr, tenantSettingsRepo)
 	log.Info().Msg("Routes setup completed")
 
 	// Create and start server
@@ -133,6 +198,14 @@ func main() {
 		}
 	} else {
 		log.Info().Msg("HTTP server shutdown completed successfully")
+	}
+
+	// Close database connection pool
+	log.Info().Msg("Closing database connection pool...")
+	if err := db.Close(database); err != nil {
+		log.Error().Err(err).Msg("Error closing database connection pool")
+	} else {
+		log.Info().Msg("Database connection pool closed successfully")
 	}
 
 	// Shutdown tracer
