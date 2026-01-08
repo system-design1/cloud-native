@@ -83,7 +83,12 @@ run: ## Run the Go project directly without Docker using go run
 		exit 1; \
 	fi
 	@echo "Running $(PROJECT_NAME) locally..."
-	@echo "Make sure database is running (use 'make dev-db-up' if needed)"
+	@export $$(grep -v '^[[:space:]]*#' .env | grep -v '^[[:space:]]*$$' | xargs) && \
+	if [ -f scripts/wait-for-db.sh ]; then \
+		echo "Checking if database is ready..."; \
+		./scripts/wait-for-db.sh || (echo "Database is not ready. Starting database..." && make dev-db-up && ./scripts/wait-for-db.sh); \
+	fi
+	@echo "Starting server..."
 	@export $$(grep -v '^[[:space:]]*#' .env | grep -v '^[[:space:]]*$$' | xargs) && $(GO) run ./cmd/server
 
 # Run with hot reload using air (if installed)
