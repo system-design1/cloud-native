@@ -53,3 +53,7 @@ temp/
 dist/
 build/
 
+# Ignore vendor directories in any subdirectory
+/vendor/
+**/vendor/
+go.work.sum
