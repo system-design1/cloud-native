@@ -37,6 +37,9 @@ SERVER_PORT=8081
 **راه‌حل:**
 
 ```bash
+# سریع‌ترین راه
+make docker-up-api-build
+
 # Rebuild کامل
 make docker-up-rebuild
 
@@ -165,8 +168,9 @@ cat .env
 # بررسی environment variables در container
 docker exec go-backend-api env | grep SERVER
 
-# Restart container
-docker-compose restart api
+# Recreate container
+make docker-up-api-recreate
+
 ```
 
 ---
@@ -177,8 +181,14 @@ docker-compose restart api
 
 1. **Alpine package manager:**
    ```bash
+   # Option A: 
    # اگر build با خطا مواجه شد، cache را پاک کنید
-   docker-compose build --no-cache api
+   docker compose build --no-cache api
+   docker compose up -d api
+
+   # Option B: create whole stack again
+   make docker-up-no-cache
+
    ```
 
 2. **Go modules:**
@@ -211,10 +221,10 @@ curl http://localhost:8080/live
 
 ```bash
 # Restart container
-docker-compose restart api
+make docker-up-api-recreate
 
-# یا rebuild
-make docker-up-rebuild
+# یا rebuild (if code has been changed)
+make docker-up-api-build
 ```
 
 ---

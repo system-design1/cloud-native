@@ -217,25 +217,26 @@ make docker-down
 **مهم:** Docker به صورت خودکار کد را rebuild نمی‌کند. بعد از تغییر کد:
 
 ```bash
-# روش 1: Rebuild و restart
+# بهترین روش (روزمره): فقط API را rebuild کن (cache-friendly)
+make docker-up-api-build
+
+# اگر چند سرویس build دارند و می‌خواهی همه را rebuild کنی (cache-friendly)
 make docker-up-rebuild
 
-# روش 2: فقط rebuild API
-docker-compose build api
-docker-compose up -d api
+# فقط اگر cache خراب شده یا build به‌هم ریخته (خیلی کند)
+make docker-up-no-cache
 
-# روش 3: Rebuild با --build flag
-docker-compose up -d --build api
 ```
 
 #### 📋 راهنمای Rebuild: چه زمانی چه چیزی باید rebuild شود؟
 
 | نوع تغییر | دستور Rebuild | توضیحات |
 |-----------|---------------|---------|
-| **تغییرات در کد Go** (مثل handlers, middleware, config) | `make docker-up-rebuild` | فقط container `api` باید rebuild شود |
-| **تغییرات در Dockerfile** | `make docker-up-rebuild` | فقط container `api` باید rebuild شود |
-| **تغییرات در docker-compose.yml** | `make docker-up-rebuild` | فقط container `api` باید rebuild شود |
-| **تغییرات در .env** (environment variables) | `docker-compose restart api` | فقط restart کافی است (بدون rebuild) |
+| **تغییرات در کد Go** (مثل handlers, middleware, config) | `make docker-up-api-build` | فقط باینری API باید دوباره build شود|
+|**تغییر Dockerfile**|`make docker-up-api-build`|image API تغییر می‌کند|
+|**تغییر go.mod / go.sum**|`make docker-up-api-build`|دانلود deps و build مجدد لازم است
+| **تغییر .env یا environment در compose** | `make docker-up-api-recreate` | build لازم نیست؛ فقط recreate برای اعمال env|
+| **تغییرات در docker-compose.yml** | `make docker-up` or `make docker-up-api-recreate` | فقط container `api` باید rebuild شود |
 | **تغییرات در configs/tempo.yaml** | `make observability-up-rebuild` | فقط observability stack |
 | **تغییرات در configs/prometheus.yml** | `make observability-up-rebuild` | فقط observability stack |
 | **تغییرات در configs/loki/** یا **configs/promtail/** | `make observability-up-rebuild` | فقط observability stack |
@@ -489,6 +490,9 @@ make docker-down      # توقف containers
 make docker-logs      # مشاهده logs
 make docker-build     # Build image
 make docker-up-rebuild # Rebuild و restart
+make docker-up-api-build # زمان تغییر در کد go
+make docker-up-api-recreate # زمان تغییر در فایل env و ساخته شدن مجدد کانتینر
+make docker-up-no-cache
 
 # Build & Test
 make build            # Build binary
