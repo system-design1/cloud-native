@@ -4,7 +4,7 @@ DOCKER_IMAGE := $(PROJECT_NAME)
 DOCKER_TAG := latest
 GO := go
 DOCKER := docker
-DOCKER_COMPOSE := docker-compose
+DOCKER_COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/$(PROJECT_NAME)
 
@@ -163,7 +163,7 @@ docker-build: ## Build the Docker image (only rebuilds if Dockerfile or code cha
 # Force rebuild Docker image
 .PHONY: docker-build-rebuild
 docker-build-rebuild: ## Force rebuild Docker image without cache
-	@echo "Force rebuilding Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
+	@echo "WARNING: --no-cache build (VERY SLOW in Iran). Use only if cache is broken. Force rebuilding Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
 	@$(DOCKER) build --no-cache -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 	@echo "Docker image rebuilt successfully"
 
@@ -183,7 +183,7 @@ docker-up: ## Start the Docker containers (skips build if image exists, use dock
 		echo ".env file created. You may need to adjust values."; \
 	fi
 	@echo "Starting Docker containers..."
-	@echo "Note: If image exists, it will start without rebuild. Use 'make docker-up-rebuild' to force rebuild."
+	@echo "Note: If code changed, use 'make docker-up-api-build' (cache-friendly). Use 'make docker-up-no-cache' only if cache is broken."
 	@$(DOCKER_COMPOSE) up -d
 	@echo ""
 	@echo "=========================================="
@@ -195,13 +195,35 @@ docker-up: ## Start the Docker containers (skips build if image exists, use dock
 	@echo "To view logs: make docker-logs"
 	@echo "To stop: make docker-down"
 
-# Rebuild and start Docker Compose services (forces rebuild)
+# Rebuild and start Docker Compose services 
 .PHONY: docker-up-rebuild
-docker-up-rebuild: ## Force rebuild and start Docker containers
-	@echo "Force rebuilding Docker containers..."
-	@$(DOCKER_COMPOSE) build --no-cache
+docker-up-rebuild: ## Rebuild and start Docker containers (cache-friendly)
+	@echo "Rebuilding Docker containers (using cache)..."
+	@$(DOCKER_COMPOSE) build
 	@$(DOCKER_COMPOSE) up -d
 	@echo "Docker containers rebuilt and started"
+
+# Rebuild and start Docker Compose services no-cache
+.PHONY: docker-up-no-cache
+docker-up-no-cache: ## Rebuild and start Docker containers WITHOUT cache (very slow; last resort)
+	@echo "WARNING: rebuilding WITHOUT cache (VERY SLOW). Use only if cache is broken."
+	@$(DOCKER_COMPOSE) build --no-cache
+	@$(DOCKER_COMPOSE) up -d
+	@echo "Docker containers rebuilt (no-cache) and started"
+
+# Use it when you change go code
+.PHONY: docker-up-api-build
+docker-up-api-build: ## Rebuild only api service (cache-friendly) and start it
+	@echo "Rebuilding only api service (using cache)..."
+	@$(DOCKER_COMPOSE) up -d --build api
+
+
+# Use it when you change .env and need to recreate
+.PHONY: docker-up-api-recreate
+docker-up-api-recreate: ## Recreate only api container to apply runtime changes (no build)
+	@echo "Recreating api container (no build) to apply env/config changes..."
+	@$(DOCKER_COMPOSE) up -d --force-recreate api
+
 
 # Stop Docker Compose services
 .PHONY: docker-down
@@ -326,6 +348,13 @@ observability-up-rebuild: ## Pull latest images and restart observability stack
 	@echo "Prometheus:     http://localhost:9090"
 	@echo "Tempo API:      http://localhost:3200"
 	@echo "Loki API:       http://localhost:3100"
+
+.PHONY: observability-up-recreate
+observability-up-recreate: ## Force-recreate observability containers WITHOUT pulling images (fast)
+	@echo "Recreating observability stack (no pull)..."
+	@$(DOCKER_COMPOSE) -f docker-compose.observability.yml up -d --force-recreate
+	@echo "Observability stack recreated"
+
 
 # Stop observability stack
 .PHONY: observability-down

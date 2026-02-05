@@ -188,7 +188,7 @@ OTEL_ROUTE_DEFAULT_RATIO=1.0
 If running with Docker Compose:
 
 ```bash
-make docker-up-rebuild
+make docker-up-api-recreate
 ```
 
 If running locally with `air`:

@@ -91,8 +91,16 @@ make docker-down
 بعد از تغییر کد، باید rebuild کنید:
 
 ```bash
-# روش 1: Rebuild و restart (توصیه می‌شود)
+# روش 1: 
+# بعد از تغییر کد (روزمره)
+make docker-up-api-build
+
+# اگر می‌خواهی همه سرویس‌های قابل build دوباره build شوند
 make docker-up-rebuild
+
+# فقط اگر build گیر کرد و cache مشکل داشت (خیلی کند)
+make docker-up-no-cache
+
 
 # روش 2: فقط rebuild API
 docker-compose build api
@@ -118,7 +126,7 @@ make docker-up
 
 ```bash
 # Rebuild کامل
-make docker-up-rebuild
+make docker-up-api-build
 ```
 
 ### مشکل: Database connection failed
