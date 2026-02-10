@@ -106,6 +106,7 @@ func main() {
 	// Initialize repositories
 	log.Debug().Msg("Initializing repositories...")
 	tenantSettingsRepo := repository.NewTenantSettingsRepository(database)
+	tenantSettingsInsertRepo := repository.NewTenantSettingsInsertRepository(database)
 	log.Info().Msg("Repositories initialized successfully")
 
 	// Set Gin mode from configuration
@@ -146,7 +147,7 @@ func main() {
 
 	// Setup routes (pass lifecycle manager and repositories)
 	log.Debug().Msg("Setting up routes...")
-	api.SetupRoutes(router, lifecycleMgr, tenantSettingsRepo)
+	api.SetupRoutes(router, lifecycleMgr, tenantSettingsRepo, tenantSettingsInsertRepo)
 	log.Info().Msg("Routes setup completed")
 
 	// Create and start server
