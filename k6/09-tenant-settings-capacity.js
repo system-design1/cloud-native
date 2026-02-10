@@ -20,13 +20,13 @@ export const options = {
     { duration: '30s', target: 1000 },
     { duration: '30s', target: 2000 },
     { duration: '30s', target: 3000 },
-    { duration: '30s', target: 5000 },  // push hard to find the ceiling
+    { duration: '30s', target: 4000 },  // push hard to find the ceiling
     { duration: '30s', target: 1500 },  // recovery observation
     { duration: '20s', target: 0 },     // cool-down
   ],
   // Permissive thresholds for discovery (don't fail too early).
   thresholds: {
-    http_req_failed: ['rate<0.05'],
+    http_req_failed: ['rate<0.01'],
     http_req_duration: ['p(95)<500', 'p(99)<1000'],
   },
 };

@@ -35,7 +35,7 @@ func SetupMiddleware(router *gin.Engine) {
 }
 
 // SetupRoutes registers all routes with the router
-func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSettingsRepo *repository.TenantSettingsRepository) {
+func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSettingsRepo *repository.TenantSettingsRepository, tenantSettingsInsertRepo *repository.TenantSettingsInsertRepository) {
 	// Prometheus metrics endpoint (must be before other routes to avoid middleware)
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
@@ -65,6 +65,7 @@ func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSett
 			otp.POST("/code", GenerateOTPCodeHandler)
 			// Tenant settings routes
 			otp.GET("/tenant-settings/:id", GetTenantSettingsByIDHandler(tenantSettingsRepo))
+			otp.POST("/tenant-settings-insert-benchmark", InsertTenantSettingsBenchmarkHandler(tenantSettingsInsertRepo))
 		}
 	}
 }
