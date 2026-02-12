@@ -2,7 +2,11 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/joho/godotenv"
 )
 
 func TestLoadServerConfig(t *testing.T) {
@@ -103,8 +107,8 @@ func TestLoadDatabaseConfigWithDefaults(t *testing.T) {
 	}
 
 	// Verify defaults are applied
-	if cfg.Database.Host != "localhost" {
-		t.Errorf("Expected DB_HOST default to be 'localhost', got %s", cfg.Database.Host)
+	if cfg.Database.Host != "127.0.0.1" {
+		t.Errorf("Expected DB_HOST default to be '127.0.0.1', got %s", cfg.Database.Host)
 	}
 	if cfg.Database.Port != 5432 {
 		t.Errorf("Expected DB_PORT default to be 5432, got %d", cfg.Database.Port)
@@ -120,6 +124,127 @@ func TestLoadDatabaseConfigWithDefaults(t *testing.T) {
 	}
 	if cfg.Database.SSLMode != "disable" {
 		t.Errorf("Expected DB_SSLMODE default to be 'disable', got %s", cfg.Database.SSLMode)
+	}
+	if cfg.Database.MaxOpenConns != 25 {
+		t.Errorf("Expected MaxOpenConns default to be 25, got %d", cfg.Database.MaxOpenConns)
+	}
+	if cfg.Database.MaxIdleConns != 5 {
+		t.Errorf("Expected MaxIdleConns default to be 5, got %d", cfg.Database.MaxIdleConns)
+	}
+	if cfg.Database.ConnMaxLifetime != 5*time.Minute {
+		t.Errorf("Expected ConnMaxLifetime default to be 5m, got %v", cfg.Database.ConnMaxLifetime)
+	}
+	if cfg.Database.ConnMaxIdleTime != 10*time.Minute {
+		t.Errorf("Expected ConnMaxIdleTime default to be 10m, got %v", cfg.Database.ConnMaxIdleTime)
+	}
+}
+
+// TestLoadDatabaseConfigPoolFromEnv verifies that DB pool settings are read from environment variables.
+func TestLoadDatabaseConfigPoolFromEnv(t *testing.T) {
+	os.Setenv("SERVER_HOST", "127.0.0.1")
+	os.Setenv("SERVER_PORT", "3000")
+	os.Setenv("SERVER_READ_TIMEOUT", "15s")
+	os.Setenv("SERVER_WRITE_TIMEOUT", "15s")
+	os.Setenv("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT", "10s")
+	os.Setenv("JWT_SECRET_KEY", "test-secret-key")
+	os.Setenv("JWT_REFRESH_SECRET", "test-refresh-secret-key")
+	os.Setenv("JWT_EXPIRATION", "24h")
+	os.Setenv("GIN_MODE", "debug")
+	os.Setenv("DB_MAX_OPEN_CONNS", "50")
+	os.Setenv("DB_MAX_IDLE_CONNS", "10")
+	os.Setenv("DB_CONN_MAX_LIFETIME", "10m")
+	os.Setenv("DB_CONN_MAX_IDLE_TIME", "15m")
+
+	defer func() {
+		os.Unsetenv("SERVER_HOST")
+		os.Unsetenv("SERVER_PORT")
+		os.Unsetenv("SERVER_READ_TIMEOUT")
+		os.Unsetenv("SERVER_WRITE_TIMEOUT")
+		os.Unsetenv("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT")
+		os.Unsetenv("JWT_SECRET_KEY")
+		os.Unsetenv("JWT_REFRESH_SECRET")
+		os.Unsetenv("JWT_EXPIRATION")
+		os.Unsetenv("GIN_MODE")
+		os.Unsetenv("DB_MAX_OPEN_CONNS")
+		os.Unsetenv("DB_MAX_IDLE_CONNS")
+		os.Unsetenv("DB_CONN_MAX_LIFETIME")
+		os.Unsetenv("DB_CONN_MAX_IDLE_TIME")
+	}()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	if cfg.Database.MaxOpenConns != 50 {
+		t.Errorf("Expected MaxOpenConns from env to be 50, got %d", cfg.Database.MaxOpenConns)
+	}
+	if cfg.Database.MaxIdleConns != 10 {
+		t.Errorf("Expected MaxIdleConns from env to be 10, got %d", cfg.Database.MaxIdleConns)
+	}
+	if cfg.Database.ConnMaxLifetime != 10*time.Minute {
+		t.Errorf("Expected ConnMaxLifetime from env to be 10m, got %v", cfg.Database.ConnMaxLifetime)
+	}
+	if cfg.Database.ConnMaxIdleTime != 15*time.Minute {
+		t.Errorf("Expected ConnMaxIdleTime from env to be 15m, got %v", cfg.Database.ConnMaxIdleTime)
+	}
+}
+
+// TestLoadDatabaseConfigPoolFromDotenvFile verifies that loading a .env file (e.g. via godotenv) sets env and config picks them up.
+func TestLoadDatabaseConfigPoolFromDotenvFile(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	content := "DB_MAX_OPEN_CONNS=99\nDB_MAX_IDLE_CONNS=7\nDB_CONN_MAX_LIFETIME=3m\nDB_CONN_MAX_IDLE_TIME=6m\n"
+	if err := os.WriteFile(envPath, []byte(content), 0600); err != nil {
+		t.Fatalf("Failed to write temp .env: %v", err)
+	}
+
+	os.Setenv("SERVER_HOST", "127.0.0.1")
+	os.Setenv("SERVER_PORT", "3000")
+	os.Setenv("SERVER_READ_TIMEOUT", "15s")
+	os.Setenv("SERVER_WRITE_TIMEOUT", "15s")
+	os.Setenv("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT", "10s")
+	os.Setenv("JWT_SECRET_KEY", "test-secret-key")
+	os.Setenv("JWT_REFRESH_SECRET", "test-refresh-secret-key")
+	os.Setenv("JWT_EXPIRATION", "24h")
+	os.Setenv("GIN_MODE", "debug")
+
+	if err := godotenv.Load(envPath); err != nil {
+		t.Fatalf("godotenv.Load failed: %v", err)
+	}
+
+	defer func() {
+		os.Unsetenv("SERVER_HOST")
+		os.Unsetenv("SERVER_PORT")
+		os.Unsetenv("SERVER_READ_TIMEOUT")
+		os.Unsetenv("SERVER_WRITE_TIMEOUT")
+		os.Unsetenv("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT")
+		os.Unsetenv("JWT_SECRET_KEY")
+		os.Unsetenv("JWT_REFRESH_SECRET")
+		os.Unsetenv("JWT_EXPIRATION")
+		os.Unsetenv("GIN_MODE")
+		os.Unsetenv("DB_MAX_OPEN_CONNS")
+		os.Unsetenv("DB_MAX_IDLE_CONNS")
+		os.Unsetenv("DB_CONN_MAX_LIFETIME")
+		os.Unsetenv("DB_CONN_MAX_IDLE_TIME")
+	}()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config after .env load: %v", err)
+	}
+
+	if cfg.Database.MaxOpenConns != 99 {
+		t.Errorf("Expected MaxOpenConns from .env file to be 99, got %d", cfg.Database.MaxOpenConns)
+	}
+	if cfg.Database.MaxIdleConns != 7 {
+		t.Errorf("Expected MaxIdleConns from .env file to be 7, got %d", cfg.Database.MaxIdleConns)
+	}
+	if cfg.Database.ConnMaxLifetime != 3*time.Minute {
+		t.Errorf("Expected ConnMaxLifetime from .env file to be 3m, got %v", cfg.Database.ConnMaxLifetime)
+	}
+	if cfg.Database.ConnMaxIdleTime != 6*time.Minute {
+		t.Errorf("Expected ConnMaxIdleTime from .env file to be 6m, got %v", cfg.Database.ConnMaxIdleTime)
 	}
 }
 

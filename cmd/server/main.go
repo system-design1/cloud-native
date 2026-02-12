@@ -13,14 +13,19 @@ import (
 	"go-backend-service/internal/db"
 	"go-backend-service/internal/lifecycle"
 	"go-backend-service/internal/logger"
+	"go-backend-service/internal/redis"
 	"go-backend-service/internal/repository"
 	"go-backend-service/internal/server"
 	"go-backend-service/internal/tracer"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load .env file into environment if present (no error if file is missing)
+	_ = godotenv.Load()
+
 	// Initialize logger (reads LOG_LEVEL from environment)
 	logger.Init()
 	log := logger.Get()
@@ -43,7 +48,15 @@ func main() {
 		Str("db_host", cfg.Database.Host).
 		Int("db_port", cfg.Database.Port).
 		Str("db_name", cfg.Database.DatabaseName).
+		Int("db_max_open_conns", cfg.Database.MaxOpenConns).
+		Int("db_max_idle_conns", cfg.Database.MaxIdleConns).
 		Msg("Configuration loaded successfully")
+
+	rdb, err := redis.NewClient(cfg.Redis)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize Redis client")
+	}
+	defer rdb.Close()
 
 	// Initialize database connection pool
 	log.Debug().Msg("Initializing database connection pool...")
@@ -107,6 +120,7 @@ func main() {
 	log.Debug().Msg("Initializing repositories...")
 	tenantSettingsRepo := repository.NewTenantSettingsRepository(database)
 	tenantSettingsInsertRepo := repository.NewTenantSettingsInsertRepository(database)
+	redisRepo := repository.NewRedisBenchmarkRepository(rdb)
 	log.Info().Msg("Repositories initialized successfully")
 
 	// Set Gin mode from configuration
@@ -147,7 +161,7 @@ func main() {
 
 	// Setup routes (pass lifecycle manager and repositories)
 	log.Debug().Msg("Setting up routes...")
-	api.SetupRoutes(router, lifecycleMgr, tenantSettingsRepo, tenantSettingsInsertRepo)
+	api.SetupRoutes(router, lifecycleMgr, tenantSettingsRepo, tenantSettingsInsertRepo, redisRepo)
 	log.Info().Msg("Routes setup completed")
 
 	// Create and start server

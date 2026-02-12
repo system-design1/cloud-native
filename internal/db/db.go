@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"go-backend-service/internal/config"
 
@@ -33,10 +32,10 @@ func NewConnectionPool(cfg *config.DatabaseConfig) (*sql.DB, error) {
 	}
 
 	// Configure connection pool settings
-	db.SetMaxOpenConns(25)                 // Maximum number of open connections
-	db.SetMaxIdleConns(5)                   // Maximum number of idle connections
-	db.SetConnMaxLifetime(5 * time.Minute) // Maximum connection lifetime
-	db.SetConnMaxIdleTime(10 * time.Minute) // Maximum idle connection time
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxIdleConns)
+	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
 
 	return db, nil
 }
