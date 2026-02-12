@@ -17,11 +17,11 @@ export const options = {
   stages: [
     { duration: '15s', target: 100 },   // warm-up
     { duration: '30s', target: 500 },
+    { duration: '30s', target: 1000 },
     { duration: '30s', target: 2000 },
     { duration: '30s', target: 3000 },
-    { duration: '30s', target: 4000 },
-    { duration: '30s', target: 5000 },  // push hard to find the ceiling
-    { duration: '30s', target: 3000 },  // recovery observation
+    { duration: '30s', target: 4000 },  // push hard to find the ceiling
+    { duration: '30s', target: 1500 },  // recovery observation
     { duration: '20s', target: 0 },     // cool-down
   ],
   // Permissive thresholds for discovery (don't fail too early).

@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	Redis    RedisConfig
 	JWT      JWTConfig
 	App      AppConfig
 	Tracing  TracingConfig
@@ -56,12 +57,29 @@ type ServerConfig struct {
 
 // DatabaseConfig holds database-related configuration
 type DatabaseConfig struct {
-	Host         string `koanf:"host"`
-	Port         int    `koanf:"port"`
-	User         string `koanf:"user"`
-	Password     string `koanf:"password"`
-	DatabaseName string `koanf:"database_name"`
-	SSLMode      string `koanf:"ssl_mode"`
+	Host            string        `koanf:"host"`
+	Port            int           `koanf:"port"`
+	User            string        `koanf:"user"`
+	Password        string        `koanf:"password"`
+	DatabaseName    string        `koanf:"database_name"`
+	SSLMode         string        `koanf:"ssl_mode"`
+	MaxOpenConns    int           `koanf:"max_open_conns"`
+	MaxIdleConns    int           `koanf:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `koanf:"conn_max_lifetime"`
+	ConnMaxIdleTime time.Duration `koanf:"conn_max_idle_time"`
+}
+
+// RedisConfig holds Redis connection and pool configuration
+type RedisConfig struct {
+	Host         string        `koanf:"host"`
+	Port         int           `koanf:"port"`
+	Password     string        `koanf:"password"`
+	DB           int           `koanf:"db"`
+	PoolSize     int           `koanf:"pool_size"`
+	MinIdleConns int           `koanf:"min_idle_conns"`
+	DialTimeout  time.Duration `koanf:"dial_timeout"`
+	ReadTimeout  time.Duration `koanf:"read_timeout"`
+	WriteTimeout time.Duration `koanf:"write_timeout"`
 }
 
 // JWTConfig holds JWT-related configuration
@@ -87,6 +105,11 @@ func Load() (*Config, error) {
 	// Load and validate database configuration
 	if err := loadDatabaseConfig(cfg); err != nil {
 		return nil, fmt.Errorf("failed to load database config: %w", err)
+	}
+
+	// Load and validate Redis configuration
+	if err := loadRedisConfig(cfg); err != nil {
+		return nil, fmt.Errorf("failed to load redis config: %w", err)
 	}
 
 	// Load and validate JWT configuration
@@ -212,13 +235,164 @@ func loadDatabaseConfig(cfg *Config) error {
 		sslMode = "disable"
 	}
 
+	maxOpenConnsStr := os.Getenv("DB_MAX_OPEN_CONNS")
+	if maxOpenConnsStr == "" {
+		maxOpenConnsStr = "25"
+	}
+	maxOpenConns, err := strconv.Atoi(maxOpenConnsStr)
+	if err != nil {
+		return fmt.Errorf("invalid DB_MAX_OPEN_CONNS: %w", err)
+	}
+	if maxOpenConns < 1 {
+		return fmt.Errorf("DB_MAX_OPEN_CONNS must be >= 1")
+	}
+
+	maxIdleConnsStr := os.Getenv("DB_MAX_IDLE_CONNS")
+	if maxIdleConnsStr == "" {
+		maxIdleConnsStr = "5"
+	}
+	maxIdleConns, err := strconv.Atoi(maxIdleConnsStr)
+	if err != nil {
+		return fmt.Errorf("invalid DB_MAX_IDLE_CONNS: %w", err)
+	}
+	if maxIdleConns < 0 {
+		return fmt.Errorf("DB_MAX_IDLE_CONNS must be >= 0")
+	}
+	if maxIdleConns > maxOpenConns {
+		return fmt.Errorf("DB_MAX_IDLE_CONNS must be <= DB_MAX_OPEN_CONNS")
+	}
+
+	connMaxLifetimeStr := os.Getenv("DB_CONN_MAX_LIFETIME")
+	if connMaxLifetimeStr == "" {
+		connMaxLifetimeStr = "5m"
+	}
+	connMaxLifetime, err := time.ParseDuration(connMaxLifetimeStr)
+	if err != nil {
+		return fmt.Errorf("invalid DB_CONN_MAX_LIFETIME: %w", err)
+	}
+
+	connMaxIdleTimeStr := os.Getenv("DB_CONN_MAX_IDLE_TIME")
+	if connMaxIdleTimeStr == "" {
+		connMaxIdleTimeStr = "10m"
+	}
+	connMaxIdleTime, err := time.ParseDuration(connMaxIdleTimeStr)
+	if err != nil {
+		return fmt.Errorf("invalid DB_CONN_MAX_IDLE_TIME: %w", err)
+	}
+
 	cfg.Database = DatabaseConfig{
+		Host:            host,
+		Port:            port,
+		User:            user,
+		Password:        password,
+		DatabaseName:    dbName,
+		SSLMode:         sslMode,
+		MaxOpenConns:    maxOpenConns,
+		MaxIdleConns:    maxIdleConns,
+		ConnMaxLifetime: connMaxLifetime,
+		ConnMaxIdleTime: connMaxIdleTime,
+	}
+
+	return nil
+}
+
+// loadRedisConfig loads and validates Redis configuration
+func loadRedisConfig(cfg *Config) error {
+	host := os.Getenv("REDIS_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	portStr := os.Getenv("REDIS_PORT")
+	if portStr == "" {
+		portStr = "6379"
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return fmt.Errorf("invalid REDIS_PORT: %w", err)
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("REDIS_PORT must be between 1 and 65535")
+	}
+
+	password := os.Getenv("REDIS_PASSWORD")
+
+	dbStr := os.Getenv("REDIS_DB")
+	if dbStr == "" {
+		dbStr = "0"
+	}
+	db, err := strconv.Atoi(dbStr)
+	if err != nil {
+		return fmt.Errorf("invalid REDIS_DB: %w", err)
+	}
+	if db < 0 {
+		return fmt.Errorf("REDIS_DB must be >= 0")
+	}
+
+	poolSizeStr := os.Getenv("REDIS_POOL_SIZE")
+	if poolSizeStr == "" {
+		poolSizeStr = "50"
+	}
+	poolSize, err := strconv.Atoi(poolSizeStr)
+	if err != nil {
+		return fmt.Errorf("invalid REDIS_POOL_SIZE: %w", err)
+	}
+	if poolSize < 1 {
+		return fmt.Errorf("REDIS_POOL_SIZE must be >= 1")
+	}
+
+	minIdleConnsStr := os.Getenv("REDIS_MIN_IDLE_CONNS")
+	if minIdleConnsStr == "" {
+		minIdleConnsStr = "10"
+	}
+	minIdleConns, err := strconv.Atoi(minIdleConnsStr)
+	if err != nil {
+		return fmt.Errorf("invalid REDIS_MIN_IDLE_CONNS: %w", err)
+	}
+	if minIdleConns < 0 {
+		return fmt.Errorf("REDIS_MIN_IDLE_CONNS must be >= 0")
+	}
+	if minIdleConns > poolSize {
+		return fmt.Errorf("REDIS_MIN_IDLE_CONNS must be <= REDIS_POOL_SIZE")
+	}
+
+	dialTimeoutStr := os.Getenv("REDIS_DIAL_TIMEOUT")
+	if dialTimeoutStr == "" {
+		dialTimeoutStr = "2s"
+	}
+	dialTimeout, err := time.ParseDuration(dialTimeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid REDIS_DIAL_TIMEOUT: %w", err)
+	}
+
+	readTimeoutStr := os.Getenv("REDIS_READ_TIMEOUT")
+	if readTimeoutStr == "" {
+		readTimeoutStr = "2s"
+	}
+	readTimeout, err := time.ParseDuration(readTimeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid REDIS_READ_TIMEOUT: %w", err)
+	}
+
+	writeTimeoutStr := os.Getenv("REDIS_WRITE_TIMEOUT")
+	if writeTimeoutStr == "" {
+		writeTimeoutStr = "2s"
+	}
+	writeTimeout, err := time.ParseDuration(writeTimeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid REDIS_WRITE_TIMEOUT: %w", err)
+	}
+
+	cfg.Redis = RedisConfig{
 		Host:         host,
 		Port:         port,
-		User:         user,
 		Password:     password,
-		DatabaseName: dbName,
-		SSLMode:      sslMode,
+		DB:           db,
+		PoolSize:     poolSize,
+		MinIdleConns: minIdleConns,
+		DialTimeout:  dialTimeout,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
 	}
 
 	return nil
