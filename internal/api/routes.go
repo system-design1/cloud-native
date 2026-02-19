@@ -35,7 +35,7 @@ func SetupMiddleware(router *gin.Engine) {
 }
 
 // SetupRoutes registers all routes with the router
-func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSettingsRepo *repository.TenantSettingsRepository, tenantSettingsInsertRepo *repository.TenantSettingsInsertRepository, redisBenchmarkRepo *repository.RedisBenchmarkRepository) {
+func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSettingsRepo *repository.TenantSettingsRepository, tenantSettingsInsertRepo *repository.TenantSettingsInsertRepository, redisBenchmarkRepo *repository.RedisBenchmarkRepository, mongoBenchmarkRepo *repository.MongoBenchmarkRepository) {
 	// Prometheus metrics endpoint (must be before other routes to avoid middleware)
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
@@ -72,6 +72,12 @@ func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSett
 		{
 			redisGroup.POST("/set", RedisSetBenchmarkHandler(redisBenchmarkRepo))
 			redisGroup.GET("/get", RedisGetBenchmarkHandler(redisBenchmarkRepo))
+		}
+		// Mongo benchmark routes
+		mongoGroup := v1.Group("/mongo")
+		{
+			mongoGroup.POST("/set", MongoSetBenchmarkHandler(mongoBenchmarkRepo))
+			mongoGroup.GET("/get", MongoGetBenchmarkHandler(mongoBenchmarkRepo))
 		}
 	}
 }

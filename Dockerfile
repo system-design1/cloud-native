@@ -27,12 +27,13 @@ RUN set -eux; \
 # Set working directory
 WORKDIR /build
 
+
 # Set GOPROXY with multiple mirrors for Go modules
 # Try Chinese mirror first (usually faster and more reliable), then direct
-
 #ENV GOPROXY=https://goproxy.cn,direct,https://proxy.golang.org,https://goproxy.io
 
-ARG GOPROXY=direct,https://proxy.golang.org,https://goproxy.io,https://goproxy.cn
+# Set GOPROXY - use proxy first to avoid 403 from golang.org when fetching golang.org/x packages
+ARG GOPROXY=https://goproxy.io,https://goproxy.cn,direct,https://proxy.golang.org
 ENV GOPROXY=$GOPROXY
 
 

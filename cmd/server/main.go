@@ -13,6 +13,7 @@ import (
 	"go-backend-service/internal/db"
 	"go-backend-service/internal/lifecycle"
 	"go-backend-service/internal/logger"
+	"go-backend-service/internal/mongo"
 	"go-backend-service/internal/redis"
 	"go-backend-service/internal/repository"
 	"go-backend-service/internal/server"
@@ -59,6 +60,16 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to initialize Redis client")
 	}
 	defer rdb.Close()
+
+	mongoClient, err := mongo.NewClient(cfg.Mongo)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize Mongo client")
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = mongoClient.Disconnect(ctx)
+	}()
 
 	// Initialize database connection pool
 	log.Debug().Msg("Initializing database connection pool...")
@@ -123,6 +134,7 @@ func main() {
 	tenantSettingsRepo := repository.NewTenantSettingsRepository(database)
 	tenantSettingsInsertRepo := repository.NewTenantSettingsInsertRepository(database)
 	redisRepo := repository.NewRedisBenchmarkRepository(rdb)
+	mongoRepo := repository.NewMongoBenchmarkRepository(mongoClient, cfg.Mongo.DB, cfg.Mongo.Collection)
 	log.Info().Msg("Repositories initialized successfully")
 
 	// Set Gin mode from configuration
@@ -163,7 +175,7 @@ func main() {
 
 	// Setup routes (pass lifecycle manager and repositories)
 	log.Debug().Msg("Setting up routes...")
-	api.SetupRoutes(router, lifecycleMgr, tenantSettingsRepo, tenantSettingsInsertRepo, redisRepo)
+	api.SetupRoutes(router, lifecycleMgr, tenantSettingsRepo, tenantSettingsInsertRepo, redisRepo, mongoRepo)
 	log.Info().Msg("Routes setup completed")
 
 	// Create and start server
