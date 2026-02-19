@@ -13,4 +13,3 @@ RULES:
 - Output only the result
 
 
-اسکریپت constant arrival rate

@@ -2,6 +2,7 @@ import http from 'k6/http';
 import { check } from 'k6';
 
 export const options = {
+  setupTimeout: '15m',
   stages: [
     { duration: '15s', target: 100 },   // warm-up
     { duration: '30s', target: 500 },
@@ -25,7 +26,7 @@ const TENANT_ID = __ENV.TENANT_ID || '1';
 const PHONE_NUMBER = __ENV.PHONE_NUMBER || '09120000000';
 const OTP_CODE = __ENV.OTP_CODE || '123456';
 
-const SEED_KEYS = Number(__ENV.SEED_KEYS || 5000);
+const SEED_KEYS = Number(__ENV.SEED_KEYS || 100000);
 
 // Sample checks to reduce overhead at very high RPS
 const CHECK_SAMPLE_RATE = Number(__ENV.CHECK_SAMPLE_RATE || 0.01); // 1%
@@ -97,4 +98,31 @@ SEED_KEYS=20000 k6 run 13-redis-get-capacity.js
 
 # To increase check sampling (debug only; increases overhead):
 CHECK_SAMPLE_RATE=1 k6 run 13-redis-get-capacity.js
+
+
+# empty redis database
+docker exec -it go-backend-redis redis-cli FLUSHDB
+
+# if you want see the number of keys in redis database
+docker exec -it go-backend-redis redis-cli KEYS "*" | wc -l
+or
+docker exec -it go-backend-redis redis-cli DBSIZE
+
+# check memory usage after remove
+docker exec -it go-backend-redis redis-cli INFO memory
+
+# check redis pool size and min idle conns
+docker exec -it go-backend-api sh -lc 'printenv | grep -E "REDIS_(POOL_SIZE|MIN_IDLE_CONNS)"'"'
+
+# benchmark set operation
+docker exec -it go-backend-redis redis-benchmark -t set -n 200000 -q
+
+# benchmark get operation
+docker exec -it go-backend-redis redis-benchmark -t get -n 200000 -q
+
+
+# k6 flow in our test cases
+k6 → HTTP → Gin → Redis Client → Redis
+k6 → HTTP → Gin → pgx → Postgres
+
 */
