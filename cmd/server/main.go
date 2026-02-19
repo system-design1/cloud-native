@@ -50,6 +50,8 @@ func main() {
 		Str("db_name", cfg.Database.DatabaseName).
 		Int("db_max_open_conns", cfg.Database.MaxOpenConns).
 		Int("db_max_idle_conns", cfg.Database.MaxIdleConns).
+		Int("redis_pool_size", cfg.Redis.PoolSize).
+		Int("redis_min_idle_conns", cfg.Redis.MinIdleConns).
 		Msg("Configuration loaded successfully")
 
 	rdb, err := redis.NewClient(cfg.Redis)
