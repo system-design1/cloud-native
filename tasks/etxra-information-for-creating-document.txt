@@ -13,3 +13,15 @@ RULES:
 - Output only the result
 
 
+# check mongodb
+
+mongosh "mongodb://root:secret@localhost:27017/admin?authSource=admin"
+
+show dbs
+use otp_bench
+show collections
+db.benchmark_kv.insertOne({ _id: "test", value: "123" })
+db.benchmark_kv.findOne({ _id: "test" })
+
+
+

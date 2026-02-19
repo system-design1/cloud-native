@@ -35,6 +35,22 @@ services:
     networks:
       - app-network
 
+  mongo:
+    image: mongo:7
+    container_name: go-backend-mongo
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=secret
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "mongodb://root:secret@localhost:27017/admin", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
   # Go Backend API
   api:
     build:
@@ -108,6 +124,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      mongo:
         condition: service_healthy
     networks:
       - app-network

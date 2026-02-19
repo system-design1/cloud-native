@@ -13,6 +13,7 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Redis    RedisConfig
+	Mongo    MongoConfig
 	JWT      JWTConfig
 	App      AppConfig
 	Tracing  TracingConfig
@@ -82,6 +83,19 @@ type RedisConfig struct {
 	WriteTimeout time.Duration `koanf:"write_timeout"`
 }
 
+// MongoConfig holds MongoDB connection and pool configuration
+type MongoConfig struct {
+	URI                     string        `koanf:"uri"`
+	DB                      string        `koanf:"db"`
+	Collection              string        `koanf:"collection"`
+	MaxPoolSize             uint64        `koanf:"max_pool_size"`
+	MinPoolSize             uint64        `koanf:"min_pool_size"`
+	ConnectTimeout          time.Duration `koanf:"connect_timeout"`
+	ServerSelectionTimeout  time.Duration `koanf:"server_selection_timeout"`
+	SocketTimeout           time.Duration `koanf:"socket_timeout"`
+	HeartbeatInterval       time.Duration `koanf:"heartbeat_interval"`
+}
+
 // JWTConfig holds JWT-related configuration
 type JWTConfig struct {
 	SecretKey     string        `koanf:"secret_key"`
@@ -110,6 +124,11 @@ func Load() (*Config, error) {
 	// Load and validate Redis configuration
 	if err := loadRedisConfig(cfg); err != nil {
 		return nil, fmt.Errorf("failed to load redis config: %w", err)
+	}
+
+	// Load and validate MongoDB configuration
+	if err := loadMongoConfig(cfg); err != nil {
+		return nil, fmt.Errorf("failed to load mongo config: %w", err)
 	}
 
 	// Load and validate JWT configuration
@@ -393,6 +412,92 @@ func loadRedisConfig(cfg *Config) error {
 		DialTimeout:  dialTimeout,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
+	}
+
+	return nil
+}
+
+// loadMongoConfig loads and validates MongoDB configuration
+func loadMongoConfig(cfg *Config) error {
+	uri := os.Getenv("MONGO_URI")
+	if uri == "" {
+		uri = "mongodb://root:secret@127.0.0.1:27017/admin?authSource=admin"
+	}
+
+	db := os.Getenv("MONGO_DB")
+	if db == "" {
+		db = "otp_bench"
+	}
+
+	collection := os.Getenv("MONGO_COLLECTION")
+	if collection == "" {
+		collection = "benchmark_kv"
+	}
+
+	maxPoolSizeStr := os.Getenv("MONGO_MAX_POOL_SIZE")
+	if maxPoolSizeStr == "" {
+		maxPoolSizeStr = "200"
+	}
+	maxPoolSize, err := strconv.ParseUint(maxPoolSizeStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid MONGO_MAX_POOL_SIZE: %w", err)
+	}
+
+	minPoolSizeStr := os.Getenv("MONGO_MIN_POOL_SIZE")
+	if minPoolSizeStr == "" {
+		minPoolSizeStr = "20"
+	}
+	minPoolSize, err := strconv.ParseUint(minPoolSizeStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid MONGO_MIN_POOL_SIZE: %w", err)
+	}
+
+	connectTimeoutStr := os.Getenv("MONGO_CONNECT_TIMEOUT")
+	if connectTimeoutStr == "" {
+		connectTimeoutStr = "2s"
+	}
+	connectTimeout, err := time.ParseDuration(connectTimeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid MONGO_CONNECT_TIMEOUT: %w", err)
+	}
+
+	serverSelectionTimeoutStr := os.Getenv("MONGO_SERVER_SELECTION_TIMEOUT")
+	if serverSelectionTimeoutStr == "" {
+		serverSelectionTimeoutStr = "2s"
+	}
+	serverSelectionTimeout, err := time.ParseDuration(serverSelectionTimeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid MONGO_SERVER_SELECTION_TIMEOUT: %w", err)
+	}
+
+	socketTimeoutStr := os.Getenv("MONGO_SOCKET_TIMEOUT")
+	if socketTimeoutStr == "" {
+		socketTimeoutStr = "2s"
+	}
+	socketTimeout, err := time.ParseDuration(socketTimeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid MONGO_SOCKET_TIMEOUT: %w", err)
+	}
+
+	heartbeatIntervalStr := os.Getenv("MONGO_HEARTBEAT_INTERVAL")
+	if heartbeatIntervalStr == "" {
+		heartbeatIntervalStr = "10s"
+	}
+	heartbeatInterval, err := time.ParseDuration(heartbeatIntervalStr)
+	if err != nil {
+		return fmt.Errorf("invalid MONGO_HEARTBEAT_INTERVAL: %w", err)
+	}
+
+	cfg.Mongo = MongoConfig{
+		URI:                    uri,
+		DB:                     db,
+		Collection:             collection,
+		MaxPoolSize:            maxPoolSize,
+		MinPoolSize:            minPoolSize,
+		ConnectTimeout:         connectTimeout,
+		ServerSelectionTimeout: serverSelectionTimeout,
+		SocketTimeout:          socketTimeout,
+		HeartbeatInterval:      heartbeatInterval,
 	}
 
 	return nil
