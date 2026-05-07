@@ -50,3 +50,10 @@ Extension changing same files simultaneously
 
 
 ------------
+
+## When you can use Codex for review
+- security review
+- refactor suggestion
+- performance review
+- test gap analysis
+- dead code detection
