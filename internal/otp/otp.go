@@ -41,4 +41,3 @@ func Generate6DigitCode() (string, error) {
 		return fmt.Sprintf("%06d", num), nil
 	}
 }
-

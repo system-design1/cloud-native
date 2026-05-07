@@ -71,4 +71,3 @@ func TestGenerate6DigitCode_Uniqueness(t *testing.T) {
 		t.Logf("Warning: Only %d unique codes in 100 iterations (collisions may occur)", len(codes))
 	}
 }
-
