@@ -336,3 +336,205 @@ Return:
 7. Risks or edge cases
 --------------------
 
+Implement tenant settings cache-aside provider for the OTP flow.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Create only:
+  - internal/repository/tenant_settings_cache_provider.go
+  - internal/repository/tenant_settings_cache_provider_test.go
+- Do not modify internal/otp unless there is a compile-time mismatch that must be fixed.
+- Do not modify routes.
+- Do not modify cmd/server/main.go.
+- Do not modify config.
+- Do not modify migrations.
+- Do not refactor existing repositories.
+- Do not introduce generic cache abstractions.
+- Do not add new dependencies.
+- Keep the diff small and easy to review.
+
+Goal:
+Add a cache-aside tenant settings provider that implements otp.TenantSettingsProvider.
+
+Recommended design:
+- Define a small unexported source interface in the new provider file:
+
+  type tenantSettingsSource interface {
+      GetTenantSettingsByID(ctx context.Context, tenantID int64) (*TenantSettings, error)
+  }
+
+- Implement:
+
+  type CachedTenantSettingsProvider struct {
+      client *redis.Client
+      source tenantSettingsSource
+      ttl    time.Duration
+  }
+
+- Add constructor:
+
+  func NewCachedTenantSettingsProvider(
+      client *redis.Client,
+      source tenantSettingsSource,
+      ttl time.Duration,
+  ) *CachedTenantSettingsProvider
+
+- Add method:
+
+  func (p *CachedTenantSettingsProvider) GetTenantSettings(ctx context.Context, tenantID int64) (*otp.TenantSettings, error)
+
+Behavior:
+1. Build Redis key using:
+   tenant:{tenant_id}:settings
+2. Try Redis GET.
+3. If cache hit and JSON unmarshalling succeeds, return cached otp.TenantSettings.
+4. If cache miss, fallback to source.GetTenantSettingsByID.
+5. If cache hit has malformed JSON, fallback to source.GetTenantSettingsByID and overwrite cache if source succeeds.
+6. If Redis GET fails for a reason other than redis.Nil, fallback to source.GetTenantSettingsByID.
+7. Map repository TenantSettings to otp.TenantSettings.
+8. Store the mapped otp.TenantSettings as JSON in Redis with TTL.
+9. If Redis SET fails after source succeeds, do not fail the request.
+10. Return source errors when source lookup fails.
+
+Important:
+- Cache only otp.TenantSettings, not the full repository TenantSettings.
+- Do not cache SMSAPIKey or other repository-only fields.
+- Do not add logging or metrics yet.
+- Keep Redis errors non-fatal for tenant lookup when source succeeds.
+- Keep helper functions private.
+- Do not implement cache stampede protection.
+- Do not implement stale refresh logic.
+
+Tests:
+- Add focused tests using the existing Redis test style.
+- Tests should skip cleanly if Redis is unavailable.
+- Use a small fake source implementation instead of requiring PostgreSQL.
+- Test cases:
+  1. Cache hit returns tenant settings and does not call source.
+  2. Cache miss calls source, returns mapped tenant settings, and populates Redis.
+  3. Malformed cache falls back to source and overwrites cache.
+  4. Source error is returned when cache miss and source fails.
+  5. Redis SET failure does not need to be simulated in this step.
+- Do not add new test dependencies.
+
+Before modifying files:
+- Briefly state the exact files you will create and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/repository -v
+- summarize changed files and test results.
+-------------
+Before implementing the fake SMS provider, analyze the current OTP domain interfaces and service direction.
+
+Do not modify any files yet.
+
+Goal:
+Design a small, realistic fake SMS provider implementation for the OTP flow.
+
+Please analyze:
+- the current otp.SMSProvider interface
+- the current SMSRequest and SMSResult models
+- how the fake provider should behave
+- where the provider implementation should live
+- whether internal/sms is the right package
+- whether the fake provider should simulate latency
+- how provider request IDs/status should be modeled
+- what minimal provider result fields are needed now
+- how provider failures should behave
+- whether context timeouts/cancellation should be respected
+- what tests should be added
+- whether any small model adjustments are needed before implementation
+
+Important constraints:
+- Do not implement anything yet
+- Do not modify files
+- Keep the next implementation diff small
+- Do not add real SMS integrations
+- Do not add queues/background workers
+- Do not add retry logic
+- Do not add generic provider frameworks
+- Keep recommendations aligned with the current project structure
+
+Return:
+1. Recommended implementation approach
+2. Exact files that should change
+3. Whether any OTP models/interfaces need adjustment
+4. Recommended fake provider behavior
+5. Error-handling recommendations
+6. Recommended tests
+7. Risks or future extension points
+
+-----
+
+Implement the fake SMS provider.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Create only:
+  - internal/sms/fake_provider.go
+  - internal/sms/fake_provider_test.go
+- Do not modify internal/otp unless there is a compile-time mismatch that must be fixed.
+- Do not modify repository code.
+- Do not modify routes.
+- Do not modify cmd/server/main.go.
+- Do not modify config.
+- Do not create migrations.
+- Do not add real SMS integrations.
+- Do not add queues, retries, provider registry, logging, or metrics.
+- Do not add new dependencies.
+- Keep the diff small and easy to review.
+
+Goal:
+Add a fake SMS provider that implements otp.SMSProvider.
+
+Implementation requirements:
+- Package should be internal/sms.
+- Add type FakeProvider.
+- Add constructor:
+  func NewFakeProvider() *FakeProvider
+- Add a private/test-friendly constructor, for example:
+  func newFakeProviderWithDelay(minDelay, maxDelay time.Duration) *FakeProvider
+- Implement:
+  func (p *FakeProvider) SendOTP(ctx context.Context, req otp.SMSRequest) (*otp.SMSResult, error)
+
+Behavior:
+- Always succeeds unless context is canceled or timed out.
+- NewFakeProvider must simulate random latency between 20ms and 30ms.
+- Respect context cancellation and timeout using select with a timer.
+- If context is canceled/timed out, return nil and a wrapped context error while preserving errors.Is.
+- Provider name should be req.Provider if provided, otherwise "fake".
+- Status should be otp.RequestStatusSent if that constant exists and is suitable; otherwise use "sent".
+- MessageID should be non-empty, using request ID if available, otherwise standard-library timestamp/randomness.
+- RawResponse should include safe provider metadata such as:
+  - provider
+  - simulated: true
+  - request_id
+- RawResponse must not include the OTP code.
+- SentAt should be time.Now().UTC().
+
+Tests:
+- Unit tests only.
+- Use the private delay constructor to keep tests fast and deterministic.
+- Add tests:
+  1. SendOTP success returns result with provider, status, message ID, SentAt, RawResponse.
+  2. RawResponse does not expose the OTP code.
+  3. Request provider overrides default provider name.
+  4. Canceled context returns an error where errors.Is(err, context.Canceled) is true.
+  5. Timeout context returns an error where errors.Is(err, context.DeadlineExceeded) is true.
+  6. NewFakeProvider is configured with default latency range 20ms to 30ms, if this can be tested without making tests flaky.
+
+Before modifying files:
+- Briefly state the exact files you will create and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/sms -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+
+----------
+
+
