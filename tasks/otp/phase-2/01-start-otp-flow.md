@@ -297,5 +297,42 @@ After implementation:
 - summarize changed files and test results.
 -------------
 
+Before implementing tenant settings cache-aside behavior, analyze the current tenant settings repository and Redis integration patterns.
 
+Do not modify any files yet.
+
+Goal:
+Design a small, clean cache-aside tenant settings provider for the OTP domain.
+
+Please analyze:
+- current tenant settings repository structure
+- how tenant settings are modeled today
+- current Redis integration style
+- where the cache-aside implementation should live
+- whether it should live in internal/repository or internal/otp
+- how cache keys should be structured
+- how tenant settings should be serialized in Redis
+- whether TTL handling should be owned by the cache layer
+- how cache miss fallback should work
+- how cache failures should behave
+- whether stale cache handling is needed yet
+- what tests should be added
+
+Important constraints:
+- Do not implement anything yet
+- Do not modify files
+- Keep the next implementation diff small
+- Do not refactor existing repository code
+- Do not introduce generic caching abstractions
+- Keep recommendations aligned with the current project structure
+
+Return:
+1. Recommended implementation approach
+2. Exact files that should change
+3. Cache key strategy
+4. Cache serialization strategy
+5. Error-handling strategy
+6. Recommended test cases
+7. Risks or edge cases
+--------------------
 
