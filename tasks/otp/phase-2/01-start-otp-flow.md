@@ -207,3 +207,95 @@ Important implementation constraints:
 Before modifying files, briefly explain the exact files you plan to change and why.
 
 
+-----------------------------
+
+Before implementing IncrementAttempts, analyze the current RedisOTPStore implementation and tests.
+
+Do not modify any files yet.
+
+Goal:
+Prepare a small, safe implementation plan for atomic OTP attempt incrementing.
+
+Please analyze:
+- current RedisOTPStore structure
+- current OTPStore interface contract
+- current Redis hash field names
+- current error handling style
+- current test style in otp_store_redis_test.go
+- how IncrementAttempts is currently stubbed
+- how to implement IncrementAttempts atomically without creating missing keys
+- whether Redis Lua script is the right approach here
+- what edge cases should be tested
+
+Important constraints:
+- Do not implement anything yet
+- Do not modify files
+- Keep the next implementation diff small
+- Do not refactor Save/Get/Delete
+- Do not introduce new dependencies
+- Keep behavior consistent with internal/otp domain errors
+
+Return:
+1. Recommended implementation approach
+2. Exact files that should change
+3. Test cases to add
+4. Risks or edge cases
+----------------------------
+
+Implement IncrementAttempts for RedisOTPStore using Redis Lua.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/repository/otp_store_redis.go
+  - internal/repository/otp_store_redis_test.go
+- Do not modify Save, Get, or Delete unless absolutely necessary.
+- Do not modify internal/otp.
+- Do not modify routes, cmd/server/main.go, config, migrations, or docs.
+- Do not introduce new dependencies.
+- Keep the diff small and easy to review.
+
+Goal:
+Replace the current IncrementAttempts stub with a real atomic Redis implementation.
+
+Implementation requirements:
+- Use a small Redis Lua script.
+- The script must:
+  1. Check if the OTP key exists.
+  2. Return -1 if the key does not exist.
+  3. Check if the attempt_count field exists.
+  4. Return -2 if attempt_count is missing.
+  5. Increment attempt_count using HINCRBY.
+  6. Return the new attempt count.
+- Map -1 to otp.ErrOTPNotFound.
+- Map -2 to a wrapped malformed-state error.
+- Redis/Lua failures should return wrapped errors.
+- Do not reset or modify TTL.
+- Do not create missing OTP keys.
+- Do not store plaintext OTP codes.
+
+Tests:
+- Replace the current IncrementAttempts not-implemented test.
+- Add focused Redis integration tests that skip cleanly when Redis is unavailable.
+
+Required test cases:
+1. IncrementAttempts increments from 0 to 1 and then to 2.
+2. After incrementing, Get returns OTPState with AttemptCount = 2.
+3. IncrementAttempts on a missing key returns otp.ErrOTPNotFound.
+4. IncrementAttempts on an existing hash without attempt_count returns an error that is not otp.ErrOTPNotFound.
+5. IncrementAttempts on a hash with non-integer attempt_count returns an error that is not otp.ErrOTPNotFound.
+
+Do not add a concurrent test in this step.
+
+Before modifying files:
+- Briefly state the exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/repository -v
+- summarize changed files and test results.
+-------------
+
+
+

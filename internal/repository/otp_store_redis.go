@@ -16,6 +16,16 @@ type RedisOTPStore struct {
 	client *redis.Client
 }
 
+var incrementOTPAttemptsScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[1]) == 0 then
+	return -1
+end
+if redis.call("HEXISTS", KEYS[1], "attempt_count") == 0 then
+	return -2
+end
+return redis.call("HINCRBY", KEYS[1], "attempt_count", 1)
+`)
+
 // NewRedisOTPStore creates a Redis-backed OTP store.
 func NewRedisOTPStore(client *redis.Client) *RedisOTPStore {
 	return &RedisOTPStore{client: client}
@@ -71,7 +81,20 @@ func (s *RedisOTPStore) Get(ctx context.Context, tenantID int64, phone string) (
 
 // IncrementAttempts is intentionally left for the next phase, where it will be atomic.
 func (s *RedisOTPStore) IncrementAttempts(ctx context.Context, tenantID int64, phone string) (int, error) {
-	return 0, otp.ErrNotImplemented
+	key := redisOTPKey(tenantID, phone)
+	attempts, err := incrementOTPAttemptsScript.Run(ctx, s.client, []string{key}).Int()
+	if err != nil {
+		return 0, fmt.Errorf("redis otp store increment attempts: %w", err)
+	}
+
+	switch attempts {
+	case -1:
+		return 0, otp.ErrOTPNotFound
+	case -2:
+		return 0, fmt.Errorf("redis otp store increment attempts: missing field %q", "attempt_count")
+	default:
+		return attempts, nil
+	}
 }
 
 // Delete removes OTP verification state from Redis.

@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -107,11 +106,97 @@ func TestRedisOTPStoreGetMalformedValue(t *testing.T) {
 	assert.NotErrorIs(t, err, otp.ErrOTPNotFound)
 }
 
-func TestRedisOTPStoreIncrementAttemptsNotImplemented(t *testing.T) {
-	store := NewRedisOTPStore(nil)
+func TestRedisOTPStoreIncrementAttempts(t *testing.T) {
+	client := setupTestRedis(t)
+	defer client.Close()
 
-	attempts, err := store.IncrementAttempts(context.Background(), 1004, "+989120001004")
+	store := NewRedisOTPStore(client)
+	ctx := context.Background()
+	state := otp.OTPState{
+		RequestID:    "request-increment-attempts",
+		TenantID:     1004,
+		Phone:        "+989120001004",
+		CodeHash:     otp.HashCode("123456"),
+		AttemptCount: 0,
+		MaxAttempts:  3,
+		CreatedAt:    time.Now().UTC().Round(0),
+		ExpiresAt:    time.Now().UTC().Add(2 * time.Minute).Round(0),
+	}
+	defer client.Del(ctx, redisOTPKey(state.TenantID, state.Phone))
+
+	err := store.Save(ctx, state, 2*time.Minute)
+	require.NoError(t, err)
+
+	attempts, err := store.IncrementAttempts(ctx, state.TenantID, state.Phone)
+	require.NoError(t, err)
+	assert.Equal(t, 1, attempts)
+
+	attempts, err = store.IncrementAttempts(ctx, state.TenantID, state.Phone)
+	require.NoError(t, err)
+	assert.Equal(t, 2, attempts)
+
+	got, err := store.Get(ctx, state.TenantID, state.Phone)
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.AttemptCount)
+}
+
+func TestRedisOTPStoreIncrementAttemptsMissingKey(t *testing.T) {
+	client := setupTestRedis(t)
+	defer client.Close()
+
+	store := NewRedisOTPStore(client)
+
+	attempts, err := store.IncrementAttempts(context.Background(), 1005, "+989120001005")
 
 	assert.Equal(t, 0, attempts)
-	assert.True(t, errors.Is(err, otp.ErrNotImplemented))
+	assert.ErrorIs(t, err, otp.ErrOTPNotFound)
+}
+
+func TestRedisOTPStoreIncrementAttemptsMissingField(t *testing.T) {
+	client := setupTestRedis(t)
+	defer client.Close()
+
+	store := NewRedisOTPStore(client)
+	ctx := context.Background()
+	key := redisOTPKey(1006, "+989120001006")
+	defer client.Del(ctx, key)
+
+	err := client.HSet(ctx, key, map[string]interface{}{
+		"request_id": "request-missing-attempt-count",
+		"tenant_id":  "1006",
+		"phone":      "+989120001006",
+		"code_hash":  otp.HashCode("123456"),
+	}).Err()
+	require.NoError(t, err)
+
+	attempts, err := store.IncrementAttempts(ctx, 1006, "+989120001006")
+
+	assert.Equal(t, 0, attempts)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, otp.ErrOTPNotFound)
+}
+
+func TestRedisOTPStoreIncrementAttemptsNonIntegerField(t *testing.T) {
+	client := setupTestRedis(t)
+	defer client.Close()
+
+	store := NewRedisOTPStore(client)
+	ctx := context.Background()
+	key := redisOTPKey(1007, "+989120001007")
+	defer client.Del(ctx, key)
+
+	err := client.HSet(ctx, key, map[string]interface{}{
+		"request_id":    "request-non-integer-attempt-count",
+		"tenant_id":     "1007",
+		"phone":         "+989120001007",
+		"code_hash":     otp.HashCode("123456"),
+		"attempt_count": "not-an-int",
+	}).Err()
+	require.NoError(t, err)
+
+	attempts, err := store.IncrementAttempts(ctx, 1007, "+989120001007")
+
+	assert.Equal(t, 0, attempts)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, otp.ErrOTPNotFound)
 }
