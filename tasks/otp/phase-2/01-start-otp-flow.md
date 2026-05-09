@@ -536,5 +536,155 @@ After implementation:
 - summarize changed files and test results.
 
 ----------
+Before implementing SendOTP orchestration, analyze the current OTP domain, Redis OTP store, tenant cache provider, and fake SMS provider.
+
+Do not modify any files yet.
+
+Goal:
+Design a small, clean first implementation of otp.Service.SendOTP.
+
+Please analyze:
+- the current otp.Service structure
+- current OTP interfaces and models
+- current Redis OTP store behavior
+- current tenant settings provider behavior
+- current fake SMS provider behavior
+- current config structure
+- what the first SendOTP implementation should do step-by-step
+- what ordering of operations is safest
+- what should happen if Redis save fails
+- what should happen if SMS provider fails
+- whether OTP should be generated before or after tenant validation
+- whether provider timeout handling should be done inside the service
+- how request IDs should be handled initially
+- whether OTP request logging should be included now or deferred
+- whether VerifyOTP should remain stubbed in this phase
+- what tests should be added
+- what edge cases should be handled now vs deferred
+
+Important constraints:
+- Do not implement anything yet
+- Do not modify files
+- Keep the next implementation diff small
+- Do not add routes or handlers yet
+- Do not add metrics or tracing yet
+- Do not add database request logging yet
+- Do not add rate limiting yet
+- Do not add retries
+- Keep the implementation aligned with the current project structure
+- Prefer correctness and clarity over abstraction
+
+Return:
+1. Recommended SendOTP flow
+2. Recommended ordering of operations
+3. Which failures should abort the flow
+4. Which failures should be tolerated
+5. Exact files that should change
+6. Recommended tests
+7. Deferred concerns that should not be implemented yet
+
+-----------
+
+Implement the first version of otp.Service.SendOTP orchestration.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/otp/service.go
+  - internal/otp/service_test.go
+- Modify internal/otp/errors.go only if absolutely necessary for a clear domain error.
+- Do not modify routes.
+- Do not modify handlers.
+- Do not modify repository code.
+- Do not modify sms package.
+- Do not modify config loader.
+- Do not create migrations.
+- Do not add metrics or tracing.
+- Do not add PostgreSQL request logging yet.
+- Do not implement VerifyOTP.
+- Do not add retries, queues, idempotency, rate limiting, or token validation.
+- Keep the diff small and easy to review.
+
+Goal:
+Implement SendOTP using the already-defined ports:
+- TenantSettingsProvider
+- OTPStore
+- SMSProvider
+
+Recommended flow:
+1. Validate request:
+   - TenantID must be greater than 0
+   - Phone must not be empty
+2. Load tenant settings using TenantSettingsProvider.
+3. Validate tenant:
+   - tenant must be active
+   - OTPEnabled must be true
+   - if ExpiresAt is present and expired, treat tenant as disabled
+4. Generate a request ID.
+5. Generate OTP code using GenerateCode(config.CodeLength).
+6. Hash OTP code using HashCode.
+7. Build OTPState.
+8. Save OTPState using OTPStore.Save with config.TTL.
+9. Send SMS using SMSProvider.SendOTP.
+10. Use context.WithTimeout for provider call using config.ProviderTimeout.
+11. Return SendResponse with RequestID and ExpiredAt.
+
+Important behavior:
+- Tenant validation happens before OTP generation.
+- Redis/store save happens before SMS sending.
+- If OTPStore.Save fails, abort and do not call SMS provider.
+- If SMSProvider.SendOTP fails or times out, return an error.
+- Do not delete/rollback Redis OTP state on SMS failure in this step.
+- Do not expose or log plaintext OTP.
+- VerifyOTP must remain a stub.
+- Request ID only needs to be non-empty and consistent across OTPState and SMSRequest.
+- Use an existing uuid package if already present in go.mod; do not add a new dependency.
+
+Tests:
+Create focused unit tests in internal/otp/service_test.go using fake dependencies.
+Do not use Redis/Postgres/SMS infrastructure.
+
+Required tests:
+1. SendOTP success:
+   - returns non-empty RequestID
+   - returns non-zero ExpiredAt
+   - saves OTP state
+   - saved CodeHash is non-empty
+   - saved CodeHash is not plaintext OTP
+   - saved tenant ID and phone match request
+   - saved max attempts and expiration are correct
+   - calls SMS provider
+   - SMS request uses same RequestID, TenantID, Phone, Provider
+2. Invalid request:
+   - TenantID <= 0 returns error
+   - empty Phone returns error
+   - store and SMS are not called
+3. Tenant lookup error:
+   - returns error
+   - store and SMS are not called
+4. Tenant disabled:
+   - OTPEnabled=false returns ErrTenantDisabled
+   - inactive status returns ErrTenantDisabled if status model supports it
+   - store and SMS are not called
+5. Store save error:
+   - returns error
+   - SMS is not called
+6. SMS provider error:
+   - returns error
+   - store was called before SMS
+7. SMS provider timeout:
+   - returns error preserving context deadline semantics if practical
+   - store was called before SMS
+
+Before modifying files:
+- Briefly state the exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/otp -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+----------------
 
 
