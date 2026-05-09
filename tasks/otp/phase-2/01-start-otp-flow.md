@@ -1022,3 +1022,189 @@ Important:
   - behavior changes
   - added tests
 ----------
+Until this section, we have completed these domains:
+OTP domain models
+OTP config
+hashing
+Redis OTP store
+atomic increment attempts
+tenant cache provider
+fake SMS provider
+SendOTP orchestration
+PostgreSQL request logging
+provider result logging
+unit/integration tests
+
+-----------------------------------
+Analyze the next implementation step for otp.Service.VerifyOTP.
+
+Current state:
+- SendOTP is implemented and tested.
+- OTP state is stored in Redis via OTPStore.
+- OTP code is stored only as a hash.
+- IncrementAttempts is implemented atomically with Redis Lua.
+- OTP request/provider logging already exists.
+- VerifyOTP is still stubbed.
+- No HTTP handlers/routes yet.
+
+I want the next step to implement VerifyOTP inside internal/otp/service.go.
+
+Please analyze:
+
+1. Recommended VerifyOTP flow ordering.
+2. Which validations should happen before IncrementAttempts.
+3. Whether IncrementAttempts should happen before or after hash verification.
+4. How expired OTPs should behave.
+5. How max attempts should behave.
+6. Whether successful verification should delete Redis OTP state.
+7. Which failures should abort immediately.
+8. Which logging should happen now vs later.
+9. Exact files that should change.
+10. Recommended unit tests.
+11. Edge cases and race conditions.
+12. Recommended behavior for repeated successful verify attempts.
+13. Whether VerifyOTP should be idempotent or one-time-use.
+14. Whether Redis delete failure after successful verification should fail the request.
+
+Important:
+- Keep the implementation small and reviewable.
+- Do not add handlers/routes yet.
+- Do not add metrics/tracing.
+- Do not add async workers.
+- Do not add rate limiting yet beyond MaxAttempts already stored in OTPState.
+- Do not change repository interfaces unless absolutely necessary.
+- Prefer consistency with the current SendOTP design and existing tests.
+-----
+
+Implement the first version of otp.Service.VerifyOTP.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/otp/service.go
+  - internal/otp/service_test.go
+- Modify internal/otp/models.go or errors.go only if absolutely necessary for missing reason constants.
+- Do not modify repository code.
+- Do not modify sms package.
+- Do not modify routes or handlers.
+- Do not modify cmd/server/main.go.
+- Do not add metrics/tracing.
+- Do not add verification logging yet.
+- Do not add new database tables/migrations.
+- Do not add async workers/retries/rate limiting/idempotency.
+- Keep the diff small and easy to review.
+
+Goal:
+Implement VerifyOTP using the existing OTPStore interface.
+
+Required flow:
+1. Validate request:
+   - TenantID must be greater than 0
+   - Phone must not be empty
+   - Code must not be empty
+2. Load OTP state using OTPStore.Get.
+3. If OTPStore.Get returns ErrOTPNotFound:
+   - return VerifyResponse{Verified:false, Reason:not_found}, nil
+   - RequestID can be empty because no state exists
+4. If OTPStore.Get returns another error:
+   - return nil, wrapped error
+5. Check expiration:
+   - if now is equal to or after state.ExpiresAt, treat as expired
+   - best-effort Delete
+   - return VerifyResponse{Verified:false, RequestID:state.RequestID, Reason:expired}, nil
+6. Determine max attempts:
+   - use state.MaxAttempts
+   - if state.MaxAttempts <= 0, fall back to service config MaxAttempts
+7. Check pre-existing attempts:
+   - if state.AttemptCount >= maxAttempts:
+     - best-effort Delete
+     - return VerifyResponse{Verified:false, RequestID:state.RequestID, Reason:max_attempts_exceeded}, nil
+8. Verify code:
+   - use VerifyCode(req.Code, state.CodeHash)
+9. If code is invalid:
+   - call OTPStore.IncrementAttempts
+   - if IncrementAttempts returns ErrOTPNotFound, return VerifyResponse{Verified:false, Reason:not_found}, nil
+   - if IncrementAttempts returns another error, return nil, wrapped error
+   - if new attempt count >= maxAttempts:
+     - best-effort Delete
+     - return VerifyResponse{Verified:false, RequestID:state.RequestID, Reason:max_attempts_exceeded}, nil
+   - otherwise return VerifyResponse{Verified:false, RequestID:state.RequestID, Reason:invalid_code}, nil
+10. If code is valid:
+   - call OTPStore.Delete
+   - if Delete fails, return nil, wrapped error
+   - return VerifyResponse{Verified:true, RequestID:state.RequestID}, nil
+
+Important behavior:
+- IncrementAttempts must happen only for a wrong code.
+- Do not increment for expired OTP.
+- Do not increment for already exhausted OTP.
+- Do not increment for correct code.
+- Successful verification is one-time-use.
+- Do not implement atomic compare-and-delete yet.
+- Accept the current race condition for concurrent correct verification attempts; document nothing unless already useful.
+- Do not log verification results yet.
+
+Reason constants:
+- Use existing reason constants if they exist.
+- If missing, add only the minimal constants needed:
+  - not_found
+  - expired
+  - invalid_code
+  - max_attempts_exceeded
+- Keep naming consistent with existing models.
+
+Tests:
+Add focused unit tests in internal/otp/service_test.go using fakeOTPStore.
+
+Required tests:
+1. success:
+   - returns Verified=true
+   - returns same RequestID
+   - calls Delete
+   - does not call IncrementAttempts
+2. invalid request:
+   - invalid tenant ID
+   - empty phone
+   - empty code
+   - store Get not called
+3. not found:
+   - OTPStore.Get returns ErrOTPNotFound
+   - returns Verified=false, Reason:not_found, nil error
+4. store get error:
+   - returns error
+5. expired OTP:
+   - returns Verified=false, Reason:expired
+   - calls Delete best-effort
+   - does not increment
+6. max attempts already reached:
+   - returns Verified=false, Reason:max_attempts_exceeded
+   - calls Delete best-effort
+   - does not increment
+7. invalid code under max:
+   - calls IncrementAttempts
+   - returns Verified=false, Reason:invalid_code
+   - does not delete
+8. invalid code reaches max:
+   - IncrementAttempts returns maxAttempts
+   - returns Verified=false, Reason:max_attempts_exceeded
+   - calls Delete best-effort
+9. increment error:
+   - returns error
+10. increment returns ErrOTPNotFound:
+   - returns Verified=false, Reason:not_found, nil error
+11. successful delete error:
+   - returns error
+12. max attempts fallback:
+   - if state.MaxAttempts <= 0, service config MaxAttempts is used
+
+Before modifying files:
+- Briefly state the exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/otp -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+
+-----------

@@ -2,6 +2,7 @@ package otp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -141,7 +142,56 @@ func (s *Service) SendOTP(ctx context.Context, req SendRequest) (*SendResponse, 
 
 // VerifyOTP will orchestrate Redis state lookup, attempt tracking, and verification logging.
 func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResponse, error) {
-	return nil, ErrNotImplemented
+	if err := validateVerifyRequest(req); err != nil {
+		return nil, err
+	}
+
+	state, err := s.store.Get(ctx, req.TenantID, req.Phone)
+	if err != nil {
+		if errors.Is(err, ErrOTPNotFound) {
+			return failedVerifyResponse("", ReasonNotFound), nil
+		}
+		return nil, fmt.Errorf("get otp state: %w", err)
+	}
+
+	now := time.Now().UTC()
+	if !now.Before(state.ExpiresAt) {
+		_ = s.store.Delete(ctx, req.TenantID, req.Phone)
+		return failedVerifyResponse(state.RequestID, ReasonExpired), nil
+	}
+
+	maxAttempts := state.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = s.config.MaxAttempts
+	}
+	if state.AttemptCount >= maxAttempts {
+		_ = s.store.Delete(ctx, req.TenantID, req.Phone)
+		return failedVerifyResponse(state.RequestID, ReasonMaxAttemptsExceeded), nil
+	}
+
+	if !VerifyCode(req.Code, state.CodeHash) {
+		attempts, err := s.store.IncrementAttempts(ctx, req.TenantID, req.Phone)
+		if err != nil {
+			if errors.Is(err, ErrOTPNotFound) {
+				return failedVerifyResponse("", ReasonNotFound), nil
+			}
+			return nil, fmt.Errorf("increment otp attempts: %w", err)
+		}
+		if attempts >= maxAttempts {
+			_ = s.store.Delete(ctx, req.TenantID, req.Phone)
+			return failedVerifyResponse(state.RequestID, ReasonMaxAttemptsExceeded), nil
+		}
+		return failedVerifyResponse(state.RequestID, ReasonInvalidCode), nil
+	}
+
+	if err := s.store.Delete(ctx, req.TenantID, req.Phone); err != nil {
+		return nil, fmt.Errorf("delete verified otp state: %w", err)
+	}
+
+	return &VerifyResponse{
+		Verified:  true,
+		RequestID: state.RequestID,
+	}, nil
 }
 
 func (s *Service) updateProviderResult(ctx context.Context, log OTPProviderResultLog) error {
@@ -192,6 +242,27 @@ func validateSendRequest(req SendRequest) error {
 		return fmt.Errorf("phone must not be empty")
 	}
 	return nil
+}
+
+func validateVerifyRequest(req VerifyRequest) error {
+	if req.TenantID <= 0 {
+		return fmt.Errorf("tenant_id must be greater than 0")
+	}
+	if strings.TrimSpace(req.Phone) == "" {
+		return fmt.Errorf("phone must not be empty")
+	}
+	if strings.TrimSpace(req.Code) == "" {
+		return fmt.Errorf("code must not be empty")
+	}
+	return nil
+}
+
+func failedVerifyResponse(requestID string, reason string) *VerifyResponse {
+	return &VerifyResponse{
+		Verified:  false,
+		RequestID: requestID,
+		Reason:    reason,
+	}
 }
 
 func validateTenant(tenant *TenantSettings, now time.Time) error {

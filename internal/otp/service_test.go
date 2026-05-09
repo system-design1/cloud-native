@@ -25,10 +25,18 @@ func (p *fakeTenantProvider) GetTenantSettings(ctx context.Context, tenantID int
 }
 
 type fakeOTPStore struct {
-	saveErr error
-	saved   OTPState
-	ttl     time.Duration
-	calls   int
+	saveErr         error
+	getErr          error
+	incrementErr    error
+	deleteErr       error
+	state           *OTPState
+	incrementResult int
+	saved           OTPState
+	ttl             time.Duration
+	calls           int
+	getCalls        int
+	incrementCalls  int
+	deleteCalls     int
 }
 
 func (s *fakeOTPStore) Save(ctx context.Context, state OTPState, ttl time.Duration) error {
@@ -39,15 +47,35 @@ func (s *fakeOTPStore) Save(ctx context.Context, state OTPState, ttl time.Durati
 }
 
 func (s *fakeOTPStore) Get(ctx context.Context, tenantID int64, phone string) (*OTPState, error) {
-	return nil, ErrNotImplemented
+	s.getCalls++
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	return s.state, nil
 }
 
 func (s *fakeOTPStore) IncrementAttempts(ctx context.Context, tenantID int64, phone string) (int, error) {
-	return 0, ErrNotImplemented
+	s.incrementCalls++
+	if s.incrementErr != nil {
+		return 0, s.incrementErr
+	}
+	if s.incrementResult != 0 {
+		return s.incrementResult, nil
+	}
+	if s.state != nil {
+		s.state.AttemptCount++
+		return s.state.AttemptCount, nil
+	}
+	return 0, nil
 }
 
 func (s *fakeOTPStore) Delete(ctx context.Context, tenantID int64, phone string) error {
-	return ErrNotImplemented
+	s.deleteCalls++
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	s.state = nil
+	return nil
 }
 
 type fakeSMSProvider struct {
@@ -335,6 +363,227 @@ func TestServiceSendOTPSuccessUpdateProviderResultError(t *testing.T) {
 	assert.Equal(t, 1, smsProvider.calls)
 }
 
+func TestServiceVerifyOTPSuccess(t *testing.T) {
+	store := &fakeOTPStore{state: activeOTPState("123456")}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "123456",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.True(t, resp.Verified)
+	assert.Equal(t, "request-verify", resp.RequestID)
+	assert.Equal(t, 1, store.deleteCalls)
+	assert.Equal(t, 0, store.incrementCalls)
+}
+
+func TestServiceVerifyOTPInvalidRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		req  VerifyRequest
+	}{
+		{name: "invalid tenant id", req: VerifyRequest{TenantID: 0, Phone: "+989121234567", Code: "123456"}},
+		{name: "empty phone", req: VerifyRequest{TenantID: 42, Phone: "", Code: "123456"}},
+		{name: "empty code", req: VerifyRequest{TenantID: 42, Phone: "+989121234567", Code: ""}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeOTPStore{state: activeOTPState("123456")}
+			service := NewService(nil, store, nil, nil, nil, Config{})
+
+			resp, err := service.VerifyOTP(context.Background(), tt.req)
+
+			require.Nil(t, resp)
+			require.Error(t, err)
+			assert.Equal(t, 0, store.getCalls)
+		})
+	}
+}
+
+func TestServiceVerifyOTPNotFound(t *testing.T) {
+	store := &fakeOTPStore{getErr: ErrOTPNotFound}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "123456",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.False(t, resp.Verified)
+	assert.Empty(t, resp.RequestID)
+	assert.Equal(t, ReasonNotFound, resp.Reason)
+}
+
+func TestServiceVerifyOTPStoreGetError(t *testing.T) {
+	getErr := errors.New("get failed")
+	store := &fakeOTPStore{getErr: getErr}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "123456",
+	})
+
+	require.Nil(t, resp)
+	assert.ErrorIs(t, err, getErr)
+}
+
+func TestServiceVerifyOTPExpired(t *testing.T) {
+	state := activeOTPState("123456")
+	state.ExpiresAt = time.Now().UTC()
+	store := &fakeOTPStore{state: state}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "123456",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Verified)
+	assert.Equal(t, "request-verify", resp.RequestID)
+	assert.Equal(t, ReasonExpired, resp.Reason)
+	assert.Equal(t, 1, store.deleteCalls)
+	assert.Equal(t, 0, store.incrementCalls)
+}
+
+func TestServiceVerifyOTPMaxAttemptsAlreadyReached(t *testing.T) {
+	state := activeOTPState("123456")
+	state.AttemptCount = 3
+	state.MaxAttempts = 3
+	store := &fakeOTPStore{state: state}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "123456",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Verified)
+	assert.Equal(t, ReasonMaxAttemptsExceeded, resp.Reason)
+	assert.Equal(t, 1, store.deleteCalls)
+	assert.Equal(t, 0, store.incrementCalls)
+}
+
+func TestServiceVerifyOTPInvalidCodeUnderMax(t *testing.T) {
+	state := activeOTPState("123456")
+	state.AttemptCount = 0
+	state.MaxAttempts = 3
+	store := &fakeOTPStore{state: state, incrementResult: 1}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "000000",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Verified)
+	assert.Equal(t, "request-verify", resp.RequestID)
+	assert.Equal(t, ReasonInvalidCode, resp.Reason)
+	assert.Equal(t, 1, store.incrementCalls)
+	assert.Equal(t, 0, store.deleteCalls)
+}
+
+func TestServiceVerifyOTPInvalidCodeReachesMax(t *testing.T) {
+	state := activeOTPState("123456")
+	state.AttemptCount = 2
+	state.MaxAttempts = 3
+	store := &fakeOTPStore{state: state, incrementResult: 3}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "000000",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Verified)
+	assert.Equal(t, ReasonMaxAttemptsExceeded, resp.Reason)
+	assert.Equal(t, 1, store.incrementCalls)
+	assert.Equal(t, 1, store.deleteCalls)
+}
+
+func TestServiceVerifyOTPIncrementError(t *testing.T) {
+	incrementErr := errors.New("increment failed")
+	store := &fakeOTPStore{state: activeOTPState("123456"), incrementErr: incrementErr}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "000000",
+	})
+
+	require.Nil(t, resp)
+	assert.ErrorIs(t, err, incrementErr)
+}
+
+func TestServiceVerifyOTPIncrementNotFound(t *testing.T) {
+	store := &fakeOTPStore{state: activeOTPState("123456"), incrementErr: ErrOTPNotFound}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "000000",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Verified)
+	assert.Empty(t, resp.RequestID)
+	assert.Equal(t, ReasonNotFound, resp.Reason)
+}
+
+func TestServiceVerifyOTPSuccessDeleteError(t *testing.T) {
+	deleteErr := errors.New("delete failed")
+	store := &fakeOTPStore{state: activeOTPState("123456"), deleteErr: deleteErr}
+	service := NewService(nil, store, nil, nil, nil, Config{})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "123456",
+	})
+
+	require.Nil(t, resp)
+	assert.ErrorIs(t, err, deleteErr)
+}
+
+func TestServiceVerifyOTPMaxAttemptsFallback(t *testing.T) {
+	state := activeOTPState("123456")
+	state.AttemptCount = 1
+	state.MaxAttempts = 0
+	store := &fakeOTPStore{state: state, incrementResult: 2}
+	service := NewService(nil, store, nil, nil, nil, Config{MaxAttempts: 2})
+
+	resp, err := service.VerifyOTP(context.Background(), VerifyRequest{
+		TenantID: 42,
+		Phone:    "+989121234567",
+		Code:     "000000",
+	})
+
+	require.NoError(t, err)
+	assert.False(t, resp.Verified)
+	assert.Equal(t, ReasonMaxAttemptsExceeded, resp.Reason)
+	assert.Equal(t, 1, store.incrementCalls)
+	assert.Equal(t, 1, store.deleteCalls)
+}
+
 func activeTenantSettings() *TenantSettings {
 	return &TenantSettings{
 		ID:              42,
@@ -345,5 +594,18 @@ func activeTenantSettings() *TenantSettings {
 		SMSProvider:     "fake",
 		RateLimitPerMin: 60,
 		Timezone:        "UTC",
+	}
+}
+
+func activeOTPState(code string) *OTPState {
+	return &OTPState{
+		RequestID:    "request-verify",
+		TenantID:     42,
+		Phone:        "+989121234567",
+		CodeHash:     HashCode(code),
+		AttemptCount: 0,
+		MaxAttempts:  3,
+		CreatedAt:    time.Now().UTC().Add(-time.Minute),
+		ExpiresAt:    time.Now().UTC().Add(time.Minute),
 	}
 }
