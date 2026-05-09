@@ -687,4 +687,180 @@ After implementation:
 - summarize changed files and test results.
 ----------------
 
+Before implementing PostgreSQL OTP request logging, analyze the current repository, migrations, and otp.Service.SendOTP flow.
 
+Do not modify any files yet.
+
+Goal:
+Design a small, incremental implementation for OTP request/provider result logging.
+
+Please analyze:
+- current migration structure and naming conventions
+- current PostgreSQL repository style
+- current tenant_settings repository patterns
+- current otp.OTPRequestLogger interface
+- current otp.OTPRequestLog and OTPProviderResultLog models
+- current SendOTP flow and where logging should happen
+- whether logging should be mandatory or best-effort in this phase
+- what database table/schema is needed
+- whether request creation and provider result update should be one table or separate tables
+- how request_id, tenant_id, phone, status, provider_name, provider_response, error_message, metadata, correlation_id should be stored
+- what indexes are needed
+- what tests should be added
+- what should be deferred
+
+Important constraints:
+- Do not implement anything yet
+- Do not modify files
+- Keep the next implementation diff small
+- Do not modify routes or handlers
+- Do not add metrics/tracing yet
+- Do not implement VerifyOTP
+- Do not add async queues/outbox/retries
+- Keep repository code consistent with current project style
+- Prefer simple PostgreSQL implementation using database/sql
+
+Return:
+1. Recommended logging design
+2. Exact files that should change
+3. Proposed migration/table schema
+4. Repository implementation approach
+5. Where logging should later be called from SendOTP
+6. Recommended tests
+7. Deferred concerns
+
+----------------
+Implement PostgreSQL OTP request logging repository and migration.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Add only:
+  - one sql-migrate migration for otp_requests
+  - internal/repository/otp_request_log_repo.go
+  - internal/repository/otp_request_log_repo_test.go
+- Do not modify otp.Service.SendOTP yet.
+- Do not modify routes or handlers.
+- Do not modify cmd/server/main.go.
+- Do not modify config.
+- Do not add metrics/tracing.
+- Do not implement VerifyOTP.
+- Do not add async queues, outbox, retries, or idempotency.
+- Keep the diff small and easy to review.
+
+Migration requirements:
+- This project uses github.com/rubenv/sql-migrate.
+- First inspect existing migration files and follow the exact sql-migrate format used in this project.
+- First inspect the Makefile and identify the existing make targets for running migrations.
+- Do not invent new migration commands.
+- Create one migration for otp_requests using the existing migration directory and naming convention.
+- Include both Up and Down sections if the existing sql-migrate files use them.
+- After creating the migration, run the existing make migration command if available.
+- If migrations cannot be run, explain exactly why and what command should be run manually.
+
+Table requirements:
+- Create table otp_requests if it does not exist.
+- Columns:
+  - id BIGSERIAL PRIMARY KEY
+  - request_id TEXT NOT NULL
+  - tenant_id BIGINT NOT NULL
+  - phone TEXT NOT NULL
+  - status TEXT NOT NULL
+  - provider_name TEXT NOT NULL DEFAULT ''
+  - provider_response JSONB NOT NULL DEFAULT '{}'::jsonb
+  - error_message TEXT
+  - metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+  - correlation_id TEXT
+  - created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  - updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+- Add unique index on request_id.
+- Add indexes:
+  - tenant_id, created_at DESC
+  - phone, created_at DESC
+  - status, created_at DESC
+- If existing migrations use updated_at triggers, follow the same style.
+
+Repository requirements:
+- Create OTPRequestLogRepository using database/sql.
+- Constructor:
+  func NewOTPRequestLogRepository(db *sql.DB) *OTPRequestLogRepository
+- Implement existing otp.OTPRequestLogger interface:
+  func (r *OTPRequestLogRepository) CreateRequest(ctx context.Context, log otp.OTPRequestLog) error
+  func (r *OTPRequestLogRepository) UpdateProviderResult(ctx context.Context, log otp.OTPProviderResultLog) error
+- Use parameterized SQL.
+- Marshal Metadata and ProviderResponse to JSON.
+- Treat nil maps as empty JSON objects.
+- Wrap errors with clear context.
+- UpdateProviderResult should match by request_id.
+- If UpdateProviderResult affects zero rows, return an error.
+
+Testing requirements:
+- Follow current repository integration test style.
+- Tests may use real PostgreSQL and skip cleanly if unavailable.
+- Do not add new dependencies.
+- Do not create schema in Go tests unless existing repository tests already do that.
+- Before running repository tests, ensure the otp_requests migration has been applied.
+- Run:
+  - gofmt
+  - the relevant existing make migration command, if available
+  - go test -count=1 ./internal/repository -v
+  - go test -count=1 ./...
+
+Add tests:
+1. CreateRequest inserts a row and persisted fields can be queried.
+2. UpdateProviderResult updates status, provider_name, provider_response, error_message.
+3. UpdateProviderResult on unknown request_id returns error.
+4. Optional only if small: duplicate request_id returns error.
+
+Before modifying files:
+- Briefly state the exact files you will create and why.
+- Briefly state which existing migration make target you found.
+
+After implementation:
+- summarize changed files
+- summarize migration command used
+- summarize test results
+
+for sql-migrate, you must use from: `https://github.com/rubenv/sql-migrate`
+
+-----
+
+OTP domain foundation ✅
+- models
+- interfaces
+- config defaults
+- errors
+- hashing
+- dynamic OTP generation
+
+Redis OTP store ✅
+- Save/Get/Delete
+- Redis Hash storage
+- atomic IncrementAttempts with Lua
+
+Tenant settings cache provider ✅
+- Redis cache-aside
+- PostgreSQL fallback
+- JSON cache
+- fake-source tests
+
+Fake SMS provider ✅
+- 20ms تا 30ms delay
+- context cancellation/timeout
+- safe RawResponse
+
+SendOTP service orchestration ✅
+- tenant validation
+- OTP generation
+- hashing
+- Redis save
+- SMS send with timeout
+- unit tests
+
+OTP request logging repository ⏳
+- migration file ساخته شده
+- repository ساخته شده
+- tests ساخته شده
+- ولی migration هنوز روی DB اجرا نشده
+
+------
