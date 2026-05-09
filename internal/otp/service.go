@@ -73,22 +73,64 @@ func (s *Service) SendOTP(ctx context.Context, req SendRequest) (*SendResponse, 
 		ExpiresAt:    expiredAt,
 	}
 
+	if s.requestLogger != nil {
+		if err := s.requestLogger.CreateRequest(ctx, OTPRequestLog{
+			RequestID:     requestID,
+			TenantID:      req.TenantID,
+			Phone:         req.Phone,
+			Status:        RequestStatusPending,
+			ProviderName:  tenant.SMSProvider,
+			CorrelationID: "",
+			Metadata:      req.Metadata,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := s.store.Save(ctx, state, s.config.TTL); err != nil {
+		saveErr := fmt.Errorf("save otp state: %w", err)
+		s.updateProviderResult(ctx, OTPProviderResultLog{
+			RequestID:    requestID,
+			Status:       RequestStatusFailed,
+			ProviderName: tenant.SMSProvider,
+			ErrorMessage: saveErr.Error(),
+			UpdatedAt:    time.Now().UTC(),
+		})
 		return nil, fmt.Errorf("save otp state: %w", err)
 	}
 
 	providerCtx, cancel := context.WithTimeout(ctx, s.config.ProviderTimeout)
 	defer cancel()
 
-	if _, err := s.smsProvider.SendOTP(providerCtx, SMSRequest{
+	result, err := s.smsProvider.SendOTP(providerCtx, SMSRequest{
 		RequestID: requestID,
 		TenantID:  req.TenantID,
 		Phone:     req.Phone,
 		Code:      code,
 		Provider:  tenant.SMSProvider,
 		Metadata:  req.Metadata,
-	}); err != nil {
+	})
+	if err != nil {
+		s.updateProviderResult(ctx, OTPProviderResultLog{
+			RequestID:    requestID,
+			Status:       RequestStatusFailed,
+			ProviderName: tenant.SMSProvider,
+			ErrorMessage: err.Error(),
+			UpdatedAt:    time.Now().UTC(),
+		})
 		return nil, fmt.Errorf("%w: %w", ErrSMSProviderFailed, err)
+	}
+
+	if err := s.updateProviderResult(ctx, OTPProviderResultLog{
+		RequestID:        requestID,
+		Status:           RequestStatusSent,
+		ProviderName:     tenant.SMSProvider,
+		ProviderResponse: smsProviderResponse(result),
+		UpdatedAt:        time.Now().UTC(),
+	}); err != nil {
+		return nil, err
 	}
 
 	return &SendResponse{
@@ -100,6 +142,26 @@ func (s *Service) SendOTP(ctx context.Context, req SendRequest) (*SendResponse, 
 // VerifyOTP will orchestrate Redis state lookup, attempt tracking, and verification logging.
 func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResponse, error) {
 	return nil, ErrNotImplemented
+}
+
+func (s *Service) updateProviderResult(ctx context.Context, log OTPProviderResultLog) error {
+	if s.requestLogger == nil {
+		return nil
+	}
+	return s.requestLogger.UpdateProviderResult(ctx, log)
+}
+
+func smsProviderResponse(result *SMSResult) map[string]interface{} {
+	if result == nil {
+		return map[string]interface{}{}
+	}
+
+	return map[string]interface{}{
+		"provider":   result.Provider,
+		"status":     result.Status,
+		"message_id": result.MessageID,
+		"sent_at":    result.SentAt,
+	}
 }
 
 func withDefaults(config Config) Config {

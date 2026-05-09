@@ -864,3 +864,161 @@ OTP request logging repository ⏳
 - ولی migration هنوز روی DB اجرا نشده
 
 ------
+Before wiring OTP request logging into SendOTP, analyze the current otp.Service.SendOTP implementation and the new OTPRequestLogRepository/interface.
+
+Do not modify any files yet.
+
+Goal:
+Design a small, safe implementation plan for adding request/provider logging into SendOTP.
+
+Please analyze:
+- current otp.Service fields and constructor
+- current OTPRequestLogger interface
+- current OTPRequestLog and OTPProviderResultLog models
+- current SendOTP ordering
+- where CreateRequest should happen
+- where UpdateProviderResult should happen
+- what status values should be used
+- how metadata and correlation_id should be handled for now
+- what should happen if CreateRequest fails
+- what should happen if OTPStore.Save fails after CreateRequest succeeds
+- what should happen if SMSProvider.SendOTP fails after OTPStore.Save succeeds
+- what should happen if UpdateProviderResult fails after SMS success
+- whether request logging should be mandatory in this phase
+- how tests should be updated
+
+Important constraints:
+- Do not implement anything yet
+- Do not modify files
+- Keep the next implementation diff small
+- Modify only internal/otp/service.go and internal/otp/service_test.go in the next implementation step unless absolutely necessary
+- Do not modify repository code
+- Do not modify routes or handlers
+- Do not modify cmd/server/main.go
+- Do not add metrics/tracing
+- Do not implement VerifyOTP
+- Do not add async queues/outbox/retries
+- Keep behavior clear and testable
+
+Return:
+1. Recommended logging flow inside SendOTP
+2. Failure policy for each logging point
+3. Exact files that should change
+4. Recommended test updates
+5. Deferred concerns
+
+--------------
+Implement OTP request/provider logging inside otp.Service.SendOTP.
+
+Scope:
+- Modify only:
+  - internal/otp/service.go
+  - internal/otp/service_test.go
+- Do not modify repositories
+- Do not modify migrations
+- Do not modify routes/handlers
+- Do not modify cmd/server/main.go
+- Do not implement VerifyOTP
+- Do not add metrics/tracing/outbox/retries
+
+Requirements:
+
+1. Add request logging into SendOTP flow.
+
+Flow order must be:
+
+1. validate request
+2. load tenant settings
+3. validate tenant
+4. generate request ID
+5. generate OTP code
+6. create OTP request log with status "pending"
+7. save OTP state in Redis
+8. send SMS
+9. update provider result log
+10. return response
+
+2. Request logging behavior
+
+If requestLogger is nil:
+- skip logging entirely
+- preserve existing behavior
+
+CreateRequest must:
+- happen before Redis save
+- use status "pending"
+
+CreateRequest failure:
+- abort the flow
+- do not call store
+- do not call SMS provider
+
+3. Store failure behavior
+
+If OTP store save fails:
+- attempt UpdateProviderResult with:
+  - status: "failed"
+  - provider_name: tenant.SMSProvider
+  - error_message: wrapped save error
+- SMS provider must NOT be called
+- return original store error
+
+4. SMS provider failure behavior
+
+If SMS provider fails or times out:
+- attempt UpdateProviderResult with:
+  - status: "failed"
+  - provider_name: tenant.SMSProvider
+  - error_message: provider error string
+- preserve:
+  - ErrSMSProviderFailed
+  - context.DeadlineExceeded
+  - context.Canceled
+- return wrapped provider error
+
+5. Success behavior
+
+After SMS success:
+- call UpdateProviderResult with:
+  - status: "sent"
+  - provider_name: tenant.SMSProvider
+  - provider_response containing ONLY:
+    - provider
+    - status
+    - message_id
+    - sent_at
+
+If UpdateProviderResult fails after SMS success:
+- return the update error
+- do not silently ignore it
+
+Consistency of request audit logging is prioritized in this phase.
+
+6. Correlation ID
+
+- set correlation_id to empty string for now
+- do not add context propagation yet
+
+7. Tests
+
+Add/update tests for:
+- success path logging
+- invalid request does not log
+- tenant lookup error does not log
+- disabled tenant does not log
+- CreateRequest failure aborts flow
+- store save failure updates failed status
+- SMS provider failure updates failed status
+- SMS provider timeout preserves context deadline exceeded
+- success update failure returns error
+
+Important:
+- keep tests deterministic
+- keep diff small
+- keep code idiomatic Go
+- gofmt all changed files
+- after implementation, summarize:
+  - changed files
+  - behavior changes
+  - added tests
+----------
