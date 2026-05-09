@@ -27,6 +27,57 @@ func TestGenerate6DigitCode(t *testing.T) {
 	}
 }
 
+func TestGenerateCode(t *testing.T) {
+	tests := []struct {
+		name   string
+		length int
+	}{
+		{name: "single digit", length: 1},
+		{name: "six digits", length: 6},
+		{name: "eight digits", length: 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, err := GenerateCode(tt.length)
+			if err != nil {
+				t.Fatalf("GenerateCode(%d) returned error: %v", tt.length, err)
+			}
+
+			if len(code) != tt.length {
+				t.Fatalf("Expected code length %d, got %d", tt.length, len(code))
+			}
+
+			matched, err := regexp.MatchString(`^\d+$`, code)
+			if err != nil {
+				t.Fatalf("Regex match error: %v", err)
+			}
+			if !matched {
+				t.Fatalf("Code %s should contain only digits", code)
+			}
+		})
+	}
+}
+
+func TestGenerateCodeInvalidLength(t *testing.T) {
+	tests := []struct {
+		name   string
+		length int
+	}{
+		{name: "zero", length: 0},
+		{name: "negative", length: -1},
+		{name: "too large", length: 19},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if code, err := GenerateCode(tt.length); err == nil {
+				t.Fatalf("GenerateCode(%d) = %q, expected error", tt.length, code)
+			}
+		})
+	}
+}
+
 func TestGenerate6DigitCode_LeadingZeros(t *testing.T) {
 	// Generate multiple codes to check for leading zeros
 	// This is probabilistic, but with enough iterations we should see some with leading zeros

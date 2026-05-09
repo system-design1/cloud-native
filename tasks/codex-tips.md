@@ -57,3 +57,35 @@ Extension changing same files simultaneously
 - performance review
 - test gap analysis
 - dead code detection
+
+----
+## Check codex code
+After generating code by codex, you can check by these steps in the following: 
+  1. Check the format
+```bash
+gofmt -w internal/otp/*.go
+```
+  2. Test implemented package
+```bash
+go test ./internal/otp -v
+```
+  3. Test percentage of coverage
+```bash
+go test ./internal/otp -cover
+go test ./internal/otp -coverprofile=coverage.out
+go tool cover -func=coverage.out
+```
+  4. Check by vet
+```bash
+go vet ./internal/otp
+```
+  5. Test whole of project
+```bash
+go test ./...
+```
+  6. Check diff
+```bash
+git add -N internal/otp/*.go
+git diff --stat -- internal/otp
+git diff -- internal/otp
+```
