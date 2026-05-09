@@ -139,4 +139,3 @@ func TestGetTenantSettingsByID_Found(t *testing.T) {
 	assert.NotNil(t, result.Metadata)
 	assert.Nil(t, result.DeletedAt, "DeletedAt should be NULL for active records")
 }
-

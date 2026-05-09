@@ -104,3 +104,106 @@ to test it, you can run these following commands:
 go test ./internal/otp -cover
 go test ./internal/otp -coverprofile=coverage.out
 go tool cover -func=coverage.out
+--------
+Before implementing the Redis-backed OTP store, first analyze the current project structure and existing Redis integration patterns.
+
+Do not modify any files yet.
+
+I want to implement the OTPStore interface incrementally and consistently with the current codebase.
+
+Please analyze:
+- how Redis clients are currently initialized and organized
+- existing Redis helper/util patterns
+- whether Redis usage already has conventions for serialization, context handling, logging, or metrics
+- where the Redis-backed OTPStore implementation should live
+- whether internal/otp/redis_store.go is the right place
+- whether Redis-specific code should stay inside internal/otp or use another package
+- how IncrementAttempts should be implemented safely
+- how Redis key naming should be handled consistently
+- whether tests should be unit tests or integration-style tests based on the current repository style
+
+Important:
+- Do not implement anything yet
+- Do not modify files
+- Return only analysis and implementation recommendations
+- Keep recommendations aligned with the current project style
+----------------
+Implement only Phase 2A-1: Redis-backed OTPStore basic operations.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Create a Redis OTP store adapter in internal/repository.
+- Prefer file name: internal/repository/otp_store_redis.go
+- Do not modify routes.
+- Do not modify cmd/server/main.go.
+- Do not modify PostgreSQL repositories.
+- Do not create migrations.
+- Do not implement SendOTP or VerifyOTP.
+- Do not modify files outside internal/repository and internal/otp unless absolutely necessary.
+- Keep the diff small.
+
+Goal:
+Implement the basic Redis-backed OTPStore adapter for the existing internal/otp.OTPStore interface.
+
+Implement:
+1. A RedisOTPStore struct wrapping *redis.Client.
+2. A constructor, for example NewRedisOTPStore(client *redis.Client) *RedisOTPStore.
+3. Save(ctx context.Context, state otp.OTPState, ttl time.Duration) error.
+4. Get(ctx context.Context, tenantID int64, phone string) (*otp.OTPState, error).
+5. Delete(ctx context.Context, tenantID int64, phone string) error.
+6. A private key helper using format:
+   otp:{tenant_id}:{phone}
+
+Storage model:
+- Use Redis Hash, not JSON.
+- Store fields:
+  - request_id
+  - tenant_id
+  - phone
+  - code_hash
+  - attempt_count
+  - max_attempts
+  - created_at
+  - expires_at
+- Use HSET + EXPIRE in Save.
+- Use HGETALL in Get.
+- Use DEL in Delete.
+- Do not store plaintext OTP codes.
+
+Error handling:
+- Missing key should return otp.ErrOTPNotFound.
+- Malformed stored values should return wrapped errors.
+- Redis command failures should return wrapped errors.
+- Keep low-level adapter quiet; do not add logging or metrics yet.
+
+IncrementAttempts:
+- Do not implement the real IncrementAttempts logic in this step.
+- If the OTPStore interface requires it, add a stub method on RedisOTPStore that returns otp.ErrNotImplemented or a clear not implemented error.
+- We will implement atomic IncrementAttempts with Lua in the next separate step.
+
+Tests:
+- Add focused tests only if they are small and consistent with the existing repository test style.
+- If Redis integration tests require running Redis, make them skip cleanly when Redis is unavailable.
+- Do not add new test dependencies.
+- Keep existing tests passing.
+
+After implementation:
+- run gofmt
+- run go test ./internal/otp
+- run go test ./internal/repository
+- summarize changed files and any tests added.
+
+Important implementation constraints:
+- Keep the adapter simple and idiomatic.
+- Avoid introducing generic abstractions or helper packages.
+- Do not add interfaces inside internal/repository.
+- Do not create a shared Redis utility layer yet.
+- Keep Redis field mapping explicit and readable.
+- Prefer clarity over abstraction.
+- Do not refactor existing Redis benchmark code in this step.
+- Keep the implementation easy to review manually.
+
+Before modifying files, briefly explain the exact files you plan to change and why.
+
+

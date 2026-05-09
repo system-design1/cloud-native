@@ -32,21 +32,21 @@ const (
 
 // TenantSettings represents a row from the tenant_settings table
 type TenantSettings struct {
-	ID             int64                  `json:"id"`
-	TenantCode     string                 `json:"tenant_code"`
-	Name           string                 `json:"name"`
-	Status         TenantStatus            `json:"status"`
-	OTPEnabled    bool                   `json:"otp_enabled"`
-	SMSProvider    SMSProvider            `json:"sms_provider"`
-	SMSAPIKey      *string                `json:"sms_api_key,omitempty"` // Nullable
-	RateLimitPerMin int                   `json:"rate_limit_per_min"`
-	SignupAt       time.Time              `json:"signup_at"`
-	ExpiresAt     *time.Time              `json:"expires_at,omitempty"` // Nullable
-	Timezone      string                  `json:"timezone"`
-	Metadata      map[string]interface{} `json:"metadata"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
-	DeletedAt     *time.Time              `json:"deleted_at,omitempty"` // Nullable (should be NULL for active records)
+	ID              int64                  `json:"id"`
+	TenantCode      string                 `json:"tenant_code"`
+	Name            string                 `json:"name"`
+	Status          TenantStatus           `json:"status"`
+	OTPEnabled      bool                   `json:"otp_enabled"`
+	SMSProvider     SMSProvider            `json:"sms_provider"`
+	SMSAPIKey       *string                `json:"sms_api_key,omitempty"` // Nullable
+	RateLimitPerMin int                    `json:"rate_limit_per_min"`
+	SignupAt        time.Time              `json:"signup_at"`
+	ExpiresAt       *time.Time             `json:"expires_at,omitempty"` // Nullable
+	Timezone        string                 `json:"timezone"`
+	Metadata        map[string]interface{} `json:"metadata"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+	DeletedAt       *time.Time             `json:"deleted_at,omitempty"` // Nullable (should be NULL for active records)
 }
 
 // TenantSettingsRepository provides methods for interacting with tenant_settings table
@@ -124,4 +124,3 @@ func (r *TenantSettingsRepository) GetTenantSettingsByID(ctx context.Context, id
 
 	return &ts, nil
 }
-
