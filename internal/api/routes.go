@@ -3,6 +3,7 @@ package api
 import (
 	"go-backend-service/internal/lifecycle"
 	"go-backend-service/internal/middleware"
+	"go-backend-service/internal/otp"
 	"go-backend-service/internal/repository"
 
 	"github.com/gin-gonic/gin"
@@ -35,7 +36,12 @@ func SetupMiddleware(router *gin.Engine) {
 }
 
 // SetupRoutes registers all routes with the router
-func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSettingsRepo *repository.TenantSettingsRepository, tenantSettingsInsertRepo *repository.TenantSettingsInsertRepository, redisBenchmarkRepo *repository.RedisBenchmarkRepository, mongoBenchmarkRepo *repository.MongoBenchmarkRepository) {
+func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSettingsRepo *repository.TenantSettingsRepository, tenantSettingsInsertRepo *repository.TenantSettingsInsertRepository, redisBenchmarkRepo *repository.RedisBenchmarkRepository, mongoBenchmarkRepo *repository.MongoBenchmarkRepository, otpServices ...*otp.Service) {
+	var otpService *otp.Service
+	if len(otpServices) > 0 {
+		otpService = otpServices[0]
+	}
+
 	// Prometheus metrics endpoint (must be before other routes to avoid middleware)
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
@@ -63,6 +69,10 @@ func SetupRoutes(router *gin.Engine, lifecycleMgr *lifecycle.Manager, tenantSett
 		otp := v1.Group("/otp")
 		{
 			otp.POST("/code", GenerateOTPCodeHandler)
+			if otpService != nil {
+				otp.POST("/send", SendOTPHandler(otpService))
+				otp.POST("/verify", VerifyOTPHandler(otpService))
+			}
 			// Tenant settings routes
 			otp.GET("/tenant-settings/:id", GetTenantSettingsByIDHandler(tenantSettingsRepo))
 			otp.POST("/tenant-settings-insert-benchmark", InsertTenantSettingsBenchmarkHandler(tenantSettingsInsertRepo))

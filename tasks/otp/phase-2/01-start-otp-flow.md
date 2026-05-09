@@ -1208,3 +1208,196 @@ After implementation:
 - summarize changed files and test results.
 
 -----------
+OTP domain foundation ✅
+OTP generation + hashing ✅
+Redis OTP store ✅
+Atomic IncrementAttempts ✅
+Tenant settings cache provider ✅
+Fake SMS provider ✅
+SendOTP service ✅
+OTP request logging repository ✅
+Request/provider logging داخل SendOTP ✅
+VerifyOTP service ✅
+HTTP handlers/routes ❌
+main.go wiring ❌
+config/env wiring کامل ❌
+verification logging repository ❌
+metrics/tracing business-level ❌
+manual end-to-end API test ❌
+-------------------
+Before implementing OTP HTTP handlers and routes, analyze the current API layer, route setup, server wiring, and OTP service implementation.
+
+Do not modify any files yet.
+
+Goal:
+Design a small, incremental implementation plan for exposing SendOTP and VerifyOTP through HTTP endpoints.
+
+Current state:
+- otp.Service.SendOTP is implemented and tested.
+- otp.Service.VerifyOTP is implemented and tested.
+- Redis OTP store exists.
+- tenant settings cache provider exists.
+- fake SMS provider exists.
+- OTP request logging repository exists.
+- No HTTP handlers/routes for real OTP send/verify exist yet.
+
+Please analyze:
+1. Current internal/api package structure.
+2. Current route registration style.
+3. Current handler style.
+4. Current validation/binding/error response patterns.
+5. How dependencies are currently passed into routes/handlers.
+6. Whether OTP handlers should live in internal/api or another package.
+7. Which files should change for the first HTTP slice.
+8. Whether cmd/server/main.go should be wired in this step or deferred.
+9. How to expose:
+   - POST /v1/otp/send
+   - POST /v1/otp/verify
+10. Request/response JSON shape for both endpoints.
+11. Error mapping strategy:
+   - validation errors
+   - tenant disabled
+   - OTP not found/expired/invalid/max attempts
+   - infrastructure errors
+12. Whether to use existing centralized error middleware or return responses directly.
+13. What tests should be added.
+14. What should be deferred.
+
+Important constraints:
+- Do not implement anything yet.
+- Do not modify files.
+- Keep the next implementation diff small.
+- Do not add metrics/tracing yet.
+- Do not add authentication/token validation yet.
+- Do not add rate limiting yet.
+- Do not add verification DB logging yet.
+- Do not change service business logic unless analysis finds a compile-time mismatch.
+- Prefer consistency with the existing API code style.
+
+Return:
+1. Recommended HTTP implementation approach.
+2. Exact files that should change.
+3. Whether to wire dependencies in cmd/server/main.go now or in a separate step.
+4. Proposed request/response structs.
+5. Error response mapping.
+6. Recommended tests.
+7. Deferred concerns.
+
+------
+Implement the first HTTP slice for OTP send/verify handlers and route registration.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/api/routes.go
+  - internal/api/otp_flow_handlers.go
+  - internal/api/otp_flow_handlers_test.go
+- Do not modify cmd/server/main.go yet.
+- Do not wire real Redis/Postgres/SMS dependencies yet.
+- Do not modify otp.Service business logic.
+- Do not modify repository code.
+- Do not modify config.
+- Do not add metrics/tracing/auth/rate limiting.
+- Do not add verification DB logging.
+- Keep the diff small and easy to review.
+
+Goal:
+Expose service-level SendOTP and VerifyOTP through thin Gin handlers.
+
+Requirements:
+
+1. Handler service abstraction
+- In internal/api, define a small unexported interface for handler testing, for example:
+  type otpFlowService interface {
+      SendOTP(ctx context.Context, req otp.SendRequest) (*otp.SendResponse, error)
+      VerifyOTP(ctx context.Context, req otp.VerifyRequest) (*otp.VerifyResponse, error)
+  }
+- *otp.Service should naturally satisfy this interface.
+- Do not change internal/otp just for handler testing.
+
+2. Handlers
+Create:
+- SendOTPHandler(service otpFlowService) gin.HandlerFunc
+- VerifyOTPHandler(service otpFlowService) gin.HandlerFunc
+
+Handler responsibilities:
+- bind JSON
+- validate required fields at HTTP boundary
+- call service
+- return JSON response
+- map known service errors to HTTP responses
+
+3. Endpoints
+Register:
+- POST /v1/otp/send
+- POST /v1/otp/verify
+
+4. Routes
+- Update SetupRoutes minimally to accept an optional OTP flow service if consistent with current route style.
+- If otp service is nil, do not register OTP send/verify routes.
+- Keep existing benchmark and health routes unchanged.
+
+5. Request DTOs
+Use API-local request structs:
+send:
+  phone string
+  tenant_id int64
+  token string
+  metadata map[string]interface{}
+
+verify:
+  tenant_id int64
+  phone string
+  code string
+
+Map them to otp.SendRequest and otp.VerifyRequest.
+
+6. Response behavior
+Send success:
+- 200 OK with otp.SendResponse
+
+Verify success or business failure:
+- 200 OK with otp.VerifyResponse
+- This includes verified=false reasons such as not_found, expired, invalid_code, max_attempts_exceeded.
+
+7. Error mapping
+- Invalid JSON or missing required fields -> 400
+- otp.ErrTenantDisabled -> 403
+- otp.ErrTenantNotFound -> 404
+- otp.ErrSMSProviderFailed -> 502 if existing error package supports custom status; otherwise use the closest existing error style without refactoring pkg/errors
+- Other errors -> 500
+- Prefer consistency with existing internal/api error handling and middleware style.
+- Do not refactor the error package.
+
+8. Tests
+Add focused handler tests without Redis/Postgres:
+- Use fake otpFlowService.
+
+Send handler tests:
+- valid request returns 200 and JSON response
+- invalid JSON returns 400
+- missing tenant_id returns 400
+- empty phone returns 400
+- tenant disabled maps to 403
+- provider failure maps to selected status, preferably 502 if supported
+- generic service error maps to 500
+
+Verify handler tests:
+- valid request returns 200 and JSON response
+- verified=false business response returns 200
+- invalid JSON returns 400
+- missing tenant_id returns 400
+- empty phone returns 400
+- empty code returns 400
+- generic service error maps to 500
+
+Important:
+- Before modifying files, briefly state exact files you will change and why.
+- After implementation, run:
+  - gofmt
+  - go test -count=1 ./internal/api -v
+  - go test -count=1 ./...
+- Summarize changed files and test results.
+
+----------
