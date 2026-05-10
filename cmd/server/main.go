@@ -156,7 +156,8 @@ func main() {
 		)
 	}
 	otpRequestLogger := repository.NewOTPRequestLogRepository(database)
-	otpService := otp.NewService(otpTenantSettingsProvider, otpStore, otpSMSProvider, otpRequestLogger, nil, otpConfig)
+	otpVerificationLogger := repository.NewOTPVerificationLogRepository(database)
+	otpService := otp.NewService(otpTenantSettingsProvider, otpStore, otpSMSProvider, otpRequestLogger, otpVerificationLogger, otpConfig)
 	log.Info().Msg("Repositories initialized successfully")
 
 	// Set Gin mode from configuration

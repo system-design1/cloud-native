@@ -153,6 +153,7 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 	state, err := s.store.Get(ctx, req.TenantID, req.Phone)
 	if err != nil {
 		if errors.Is(err, ErrOTPNotFound) {
+			s.logVerification(ctx, verificationLog(req, "", VerificationResultFailed, ReasonNotFound, 0))
 			return failedVerifyResponse("", ReasonNotFound), nil
 		}
 		return nil, fmt.Errorf("get otp state: %w", err)
@@ -161,6 +162,7 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 	now := time.Now().UTC()
 	if !now.Before(state.ExpiresAt) {
 		_ = s.store.Delete(ctx, req.TenantID, req.Phone)
+		s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonExpired, state.AttemptCount))
 		return failedVerifyResponse(state.RequestID, ReasonExpired), nil
 	}
 
@@ -170,6 +172,7 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 	}
 	if state.AttemptCount >= maxAttempts {
 		_ = s.store.Delete(ctx, req.TenantID, req.Phone)
+		s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonMaxAttemptsExceeded, state.AttemptCount))
 		return failedVerifyResponse(state.RequestID, ReasonMaxAttemptsExceeded), nil
 	}
 
@@ -177,14 +180,17 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 		attempts, err := s.store.IncrementAttempts(ctx, req.TenantID, req.Phone)
 		if err != nil {
 			if errors.Is(err, ErrOTPNotFound) {
+				s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonNotFound, 0))
 				return failedVerifyResponse("", ReasonNotFound), nil
 			}
 			return nil, fmt.Errorf("increment otp attempts: %w", err)
 		}
 		if attempts >= maxAttempts {
 			_ = s.store.Delete(ctx, req.TenantID, req.Phone)
+			s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonMaxAttemptsExceeded, attempts))
 			return failedVerifyResponse(state.RequestID, ReasonMaxAttemptsExceeded), nil
 		}
+		s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonInvalidCode, attempts))
 		return failedVerifyResponse(state.RequestID, ReasonInvalidCode), nil
 	}
 
@@ -192,6 +198,7 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 		return nil, fmt.Errorf("delete verified otp state: %w", err)
 	}
 
+	s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultSuccess, ReasonVerified, state.AttemptCount))
 	return &VerifyResponse{
 		Verified:  true,
 		RequestID: state.RequestID,
@@ -215,6 +222,26 @@ func (s *Service) preventActiveResend(ctx context.Context, tenantID int64, phone
 
 	_ = s.store.Delete(ctx, tenantID, phone)
 	return nil
+}
+
+func (s *Service) logVerification(ctx context.Context, log OTPVerificationLog) {
+	if s.verifyLogger == nil {
+		return
+	}
+	_ = s.verifyLogger.LogVerification(ctx, log)
+}
+
+func verificationLog(req VerifyRequest, requestID string, result string, reason string, attemptCount int) OTPVerificationLog {
+	return OTPVerificationLog{
+		RequestID:     requestID,
+		TenantID:      req.TenantID,
+		Phone:         req.Phone,
+		Result:        result,
+		Reason:        reason,
+		AttemptCount:  attemptCount,
+		CorrelationID: "",
+		CreatedAt:     time.Now().UTC(),
+	}
 }
 
 func (s *Service) updateProviderResult(ctx context.Context, log OTPProviderResultLog) error {

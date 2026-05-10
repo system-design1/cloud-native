@@ -2209,3 +2209,167 @@ Return:
 8. Deferred concerns.
 
 ---------------
+we broke it to 2 separate phases:
+Verification logging repository + migration
+Wire verification logger into VerifyOTP + main.go
+-------------
+Implement OTP verification logging repository and migration only.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Add only:
+  - one sql-migrate migration for otp_verifications
+  - internal/repository/otp_verification_log_repo.go
+  - internal/repository/otp_verification_log_repo_test.go
+- Do not modify internal/otp/service.go yet.
+- Do not modify internal/otp/service_test.go yet.
+- Do not modify cmd/server/main.go yet.
+- Do not modify API handlers/routes.
+- Do not add metrics/tracing.
+- Do not add async logging/outbox.
+- Do not add rate limiting.
+- Keep the diff small and easy to review.
+
+Migration requirements:
+- First inspect existing migration files and follow the exact naming/style used in this project.
+- Use sql-migrate format with Up/Down if that is the existing style.
+- Create table otp_verifications if it does not exist.
+- Columns:
+  - id BIGSERIAL PRIMARY KEY
+  - request_id TEXT NOT NULL DEFAULT ''
+  - tenant_id BIGINT NOT NULL
+  - phone TEXT NOT NULL
+  - result TEXT NOT NULL
+  - reason TEXT NOT NULL DEFAULT ''
+  - attempt_count INTEGER NOT NULL DEFAULT 0
+  - correlation_id TEXT
+  - created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+- Indexes:
+  - request_id
+  - tenant_id, created_at DESC
+  - phone, created_at DESC
+  - result, created_at DESC
+- Do not add a foreign key to otp_requests yet.
+- Add Down migration that drops indexes/table consistently with project style.
+
+Repository requirements:
+- Create OTPVerificationLogRepository using database/sql.
+- Constructor:
+  func NewOTPVerificationLogRepository(db *sql.DB) *OTPVerificationLogRepository
+- Implement existing otp.OTPVerificationLogger interface:
+  func (r *OTPVerificationLogRepository) LogVerification(ctx context.Context, log otp.OTPVerificationLog) error
+- Use parameterized SQL.
+- If CreatedAt is zero, default to time.Now().UTC().
+- Store empty CorrelationID as SQL NULL if existing repository helpers support that pattern; otherwise keep it simple and consistent with existing code.
+- Wrap errors with clear context.
+
+Testing requirements:
+- Follow current repository integration test style.
+- Tests may use real PostgreSQL and skip cleanly if unavailable.
+- Do not add new dependencies.
+- Do not create schema in Go tests unless existing repository tests already do that.
+- If otp_verifications table is missing because migration is not applied, skip cleanly with a clear message.
+
+Add tests:
+1. LogVerification inserts a success row.
+2. LogVerification inserts a failed row with reason and attempt_count.
+3. Zero CreatedAt is defaulted and stored.
+4. Empty CorrelationID is stored as NULL if practical to assert.
+5. Optional only if small: non-empty CorrelationID is stored.
+
+Before modifying files:
+- Briefly state the exact files you will create and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/repository -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+---------
+
+Before wiring OTP verification logging into VerifyOTP, analyze the current VerifyOTP service flow, service tests, and server wiring.
+
+Do not modify files yet.
+
+Current state:
+- OTPVerificationLogger interface already exists.
+- OTPVerificationLog model already exists.
+- PostgreSQL OTPVerificationLogRepository and migration are implemented and committed.
+- VerifyOTP is implemented and tested.
+- cmd/server/main.go currently passes nil as verifyLogger to otp.NewService.
+- Verification logging should now be wired as best-effort.
+
+Goal:
+Design a small, safe implementation plan to:
+1. log verification outcomes from otp.Service.VerifyOTP
+2. construct OTPVerificationLogRepository in cmd/server/main.go
+3. pass it to otp.NewService
+
+Please analyze:
+1. Current VerifyOTP branches and all business outcomes.
+2. Where LogVerification should be called in each branch.
+3. Which outcomes should be logged:
+   - success
+   - not_found
+   - expired
+   - invalid_code
+   - max_attempts_exceeded
+4. Which outcomes should NOT be logged:
+   - invalid request
+   - infrastructure/store errors
+   - delete failure after success
+   - increment infrastructure errors
+5. What result/reason values should be used.
+6. How attempt_count should be populated for each outcome.
+7. How request_id should be populated when state is available.
+8. Whether logging should be best-effort and ignored on failure.
+9. How to ensure logging does not change VerifyOTP responses.
+10. Exact files that should change.
+11. Required service tests.
+12. Whether cmd/server/main.go should be included in the same slice.
+13. Manual verification steps after implementation.
+
+Important constraints:
+- Do not implement anything yet.
+- Do not modify files.
+- Keep the next diff small.
+- Modify only:
+  - internal/otp/service.go
+  - internal/otp/service_test.go
+  - cmd/server/main.go
+  unless a compile-time mismatch requires otherwise.
+- Do not modify repository code.
+- Do not modify migrations.
+- Do not modify API handlers/routes.
+- Do not add metrics/tracing.
+- Do not add async logging/outbox.
+- Verification logging must be best-effort.
+- Logging failure must not change VerifyOTP response.
+
+Return:
+1. Recommended wiring approach.
+2. Exact VerifyOTP logging points.
+3. Result/reason mapping table.
+4. Failure policy.
+5. Exact files that should change.
+6. Tests to add/update.
+7. Manual validation steps.
+
+---------
+I have implemented these sections:
+SendOTP
+VerifyOTP
+Redis OTP state
+request logging
+verification logging
+resend protection
+fake SMS provider
+debug OTP capture
+env-driven config
+HTTP handlers/routes
+end-to-end manual testability
+repository integration tests
+service-level tests
+handler-level tests
+-------------------
