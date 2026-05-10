@@ -149,6 +149,7 @@ func TestServiceSendOTPSuccess(t *testing.T) {
 	assert.NotEmpty(t, resp.RequestID)
 	assert.False(t, resp.ExpiredAt.IsZero())
 	assert.Equal(t, 1, store.calls)
+	assert.Equal(t, 1, store.getCalls)
 	assert.NotEmpty(t, store.saved.CodeHash)
 	assert.NotEqual(t, smsProvider.req.Code, store.saved.CodeHash)
 	assert.Equal(t, req.TenantID, store.saved.TenantID)
@@ -255,12 +256,109 @@ func TestServiceSendOTPTenantDisabled(t *testing.T) {
 			require.Nil(t, resp)
 			assert.ErrorIs(t, err, ErrTenantDisabled)
 			assert.Equal(t, 1, tenantProvider.calls)
+			assert.Equal(t, 0, store.getCalls)
 			assert.Equal(t, 0, store.calls)
 			assert.Equal(t, 0, smsProvider.calls)
 			assert.Equal(t, 0, requestLogger.createCalls)
 			assert.Equal(t, 0, requestLogger.updateCalls)
 		})
 	}
+}
+
+func TestServiceSendOTPExistingActiveOTPBlocked(t *testing.T) {
+	tenantProvider := &fakeTenantProvider{settings: activeTenantSettings()}
+	store := &fakeOTPStore{state: activeOTPState("123456")}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrOTPAlreadyActive)
+	assert.Equal(t, 1, tenantProvider.calls)
+	assert.Equal(t, 1, store.getCalls)
+	assert.Equal(t, 0, requestLogger.createCalls)
+	assert.Equal(t, 0, requestLogger.updateCalls)
+	assert.Equal(t, 0, store.calls)
+	assert.Equal(t, 0, smsProvider.calls)
+	assert.Equal(t, 0, store.deleteCalls)
+}
+
+func TestServiceSendOTPExistingExpiredOTPDeletedAndProceeds(t *testing.T) {
+	expired := activeOTPState("123456")
+	expired.ExpiresAt = time.Now().UTC().Add(-time.Second)
+	tenantProvider := &fakeTenantProvider{settings: activeTenantSettings()}
+	store := &fakeOTPStore{state: expired}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, 1, store.getCalls)
+	assert.Equal(t, 1, store.deleteCalls)
+	assert.Equal(t, 1, requestLogger.createCalls)
+	assert.Equal(t, 1, store.calls)
+	assert.Equal(t, 1, smsProvider.calls)
+}
+
+func TestServiceSendOTPExistingExpiredOTPDeleteFailureStillProceeds(t *testing.T) {
+	expired := activeOTPState("123456")
+	expired.ExpiresAt = time.Now().UTC().Add(-time.Second)
+	tenantProvider := &fakeTenantProvider{settings: activeTenantSettings()}
+	store := &fakeOTPStore{state: expired, deleteErr: errors.New("delete failed")}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, 1, store.getCalls)
+	assert.Equal(t, 1, store.deleteCalls)
+	assert.Equal(t, 1, requestLogger.createCalls)
+	assert.Equal(t, 1, store.calls)
+	assert.Equal(t, 1, smsProvider.calls)
+}
+
+func TestServiceSendOTPExistingOTPNotFoundProceeds(t *testing.T) {
+	tenantProvider := &fakeTenantProvider{settings: activeTenantSettings()}
+	store := &fakeOTPStore{getErr: ErrOTPNotFound}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, 1, store.getCalls)
+	assert.Equal(t, 1, requestLogger.createCalls)
+	assert.Equal(t, 1, store.calls)
+	assert.Equal(t, 1, smsProvider.calls)
+}
+
+func TestServiceSendOTPExistingOTPGetErrorAborts(t *testing.T) {
+	getErr := errors.New("redis get failed")
+	tenantProvider := &fakeTenantProvider{settings: activeTenantSettings()}
+	store := &fakeOTPStore{getErr: getErr}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.Nil(t, resp)
+	assert.ErrorIs(t, err, getErr)
+	assert.Equal(t, 1, store.getCalls)
+	assert.Equal(t, 0, requestLogger.createCalls)
+	assert.Equal(t, 0, requestLogger.updateCalls)
+	assert.Equal(t, 0, store.calls)
+	assert.Equal(t, 0, smsProvider.calls)
 }
 
 func TestServiceSendOTPCreateRequestError(t *testing.T) {

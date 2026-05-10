@@ -55,6 +55,10 @@ func (s *Service) SendOTP(ctx context.Context, req SendRequest) (*SendResponse, 
 		return nil, err
 	}
 
+	if err := s.preventActiveResend(ctx, req.TenantID, req.Phone, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+
 	requestID := uuid.NewString()
 	code, err := GenerateCode(s.config.CodeLength)
 	if err != nil {
@@ -192,6 +196,25 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 		Verified:  true,
 		RequestID: state.RequestID,
 	}, nil
+}
+
+func (s *Service) preventActiveResend(ctx context.Context, tenantID int64, phone string, now time.Time) error {
+	state, err := s.store.Get(ctx, tenantID, phone)
+	if err != nil {
+		if errors.Is(err, ErrOTPNotFound) {
+			return nil
+		}
+		return fmt.Errorf("get existing otp state: %w", err)
+	}
+	if state == nil {
+		return nil
+	}
+	if now.Before(state.ExpiresAt) {
+		return ErrOTPAlreadyActive
+	}
+
+	_ = s.store.Delete(ctx, tenantID, phone)
+	return nil
 }
 
 func (s *Service) updateProviderResult(ctx context.Context, log OTPProviderResultLog) error {

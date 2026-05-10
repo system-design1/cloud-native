@@ -1979,3 +1979,147 @@ After implementation:
 
 ----------
 
+Analyze the next incremental step for OTP resend protection / active OTP prevention.
+
+Current state:
+- OTP state is stored in Redis via OTPStore.
+- Key format:
+  otp:{tenant_id}:{phone}
+- SendOTP currently always creates a new OTP state and sends SMS.
+- VerifyOTP deletes OTP state on successful verification.
+- OTP TTL already exists.
+- No resend protection or cooldown exists yet.
+- Manual testing showed the same phone can request unlimited OTPs rapidly.
+
+Goal:
+Design the smallest safe implementation to prevent OTP spam and repeated resend while an active OTP already exists.
+
+Important:
+- Do not implement yet.
+- Do not modify files yet.
+- Keep the next diff small.
+- Prefer reusing existing Redis OTP state.
+- Avoid introducing a full generic rate limiter.
+- Avoid introducing new infrastructure or dependencies.
+- Avoid adding background jobs.
+- Preserve current VerifyOTP behavior.
+
+Please analyze:
+1. Recommended resend protection strategy.
+2. Whether SendOTP should reject when an active OTP already exists.
+3. Whether cooldown should be based on Redis key existence or timestamps.
+4. Recommended API response behavior and HTTP status.
+5. Whether remaining TTL should be exposed to the client.
+6. Race conditions and Redis consistency concerns.
+7. Exact files that should change.
+8. Whether OTPStore interface changes are needed.
+9. Whether OTPStore.Get should be reused or a cheaper Exists API is better.
+10. Required tests.
+11. Edge cases:
+   - expired OTP
+   - malformed Redis state
+   - concurrent sends
+   - Redis failures
+12. Whether request logging should log blocked resend attempts.
+13. Deferred concerns:
+   - distributed rate limiting
+   - IP throttling
+   - tenant quotas
+   - resend-after durations
+   - resend token flows
+   - resend same-code behavior
+   - background cleanup
+   - provider billing protection
+
+Preferred direction:
+- Keep implementation small.
+- Reuse existing Redis OTP state.
+- Reject new sends while an active OTP exists.
+- Use 429 Too Many Requests at the HTTP layer.
+
+------
+
+Implement the first OTP resend protection using the existing Redis OTP state.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/otp/errors.go
+  - internal/otp/service.go
+  - internal/otp/service_test.go
+  - internal/api/otp_flow_handlers.go
+  - internal/api/otp_flow_handlers_test.go
+- Do not modify repository code.
+- Do not modify OTPStore interface.
+- Do not modify Redis store implementation.
+- Do not modify cmd/server/main.go.
+- Do not modify config.
+- Do not add new Redis keys.
+- Do not add generic rate limiter.
+- Do not add tenant quota system.
+- Do not add Retry-After header yet.
+- Do not log blocked resend attempts into otp_requests.
+- Keep the diff small and easy to review.
+
+Goal:
+Prevent repeated /otp/send requests for the same tenant_id + phone while an active, unexpired OTP already exists.
+
+Requirements:
+
+1. Add domain error:
+   ErrOTPAlreadyActive
+
+2. SendOTP flow:
+   - Validate request.
+   - Load tenant settings.
+   - Validate tenant.
+   - Check existing OTP state using OTPStore.Get(ctx, tenantID, phone).
+   - If OTPStore.Get returns ErrOTPNotFound:
+     continue normal send flow.
+   - If OTPStore.Get returns any other error:
+     abort and return wrapped error.
+   - If an existing OTP state is found and ExpiresAt is in the future:
+     return ErrOTPAlreadyActive.
+   - If an existing OTP state is expired:
+     best-effort Delete(ctx, tenantID, phone)
+     continue normal send flow.
+   - Do not create request log for blocked resend attempts.
+   - Do not generate a new OTP for blocked resend attempts.
+   - Do not call SMS provider for blocked resend attempts.
+
+3. Expired existing OTP behavior:
+   - If Delete fails, ignore the delete error and continue.
+   - This matches best-effort cleanup behavior used elsewhere.
+
+4. API mapping:
+   - Map ErrOTPAlreadyActive to HTTP 429 Too Many Requests.
+   - Use existing error response style.
+   - Do not add Retry-After yet.
+
+5. Tests in internal/otp:
+   Add/update service tests for:
+   - no existing OTP / ErrOTPNotFound: SendOTP proceeds normally
+   - existing active OTP: returns ErrOTPAlreadyActive
+   - existing active OTP: does not create request log
+   - existing active OTP: does not save new OTP state
+   - existing active OTP: does not call SMS provider
+   - existing expired OTP: best-effort delete and SendOTP proceeds
+   - existing expired OTP delete failure: SendOTP still proceeds
+   - OTPStore.Get returns non-not-found error: SendOTP aborts
+   - tenant validation still happens before active OTP check
+
+6. Tests in internal/api:
+   - Send handler maps ErrOTPAlreadyActive to 429.
+
+Important:
+- Before modifying files, briefly state exact files you will change and why.
+- After implementation:
+  - run gofmt
+  - run go test -count=1 ./internal/otp -v
+  - run go test -count=1 ./internal/api -v
+  - run go test -count=1 ./...
+  - summarize changed files and test results.
+
+
+---------

@@ -255,4 +255,3 @@ func TestGetTenantSettingsByIDHandler_Found(t *testing.T) {
 	assert.NotZero(t, response.UpdatedAt)
 	assert.Nil(t, response.DeletedAt)
 }
-
