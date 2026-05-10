@@ -114,6 +114,16 @@ func TestSendOTPHandlerOTPAlreadyActive(t *testing.T) {
 	assertErrorResponse(t, w, http.StatusTooManyRequests)
 }
 
+func TestSendOTPHandlerOTPRateLimited(t *testing.T) {
+	service := &fakeOTPFlowService{sendErr: otp.ErrOTPRateLimited}
+	router := newOTPFlowTestRouter()
+	router.POST("/v1/otp/send", SendOTPHandler(service))
+
+	w := performJSONRequest(router, "POST", "/v1/otp/send", `{"tenant_id":42,"phone":"+989121234567"}`)
+
+	assertErrorResponse(t, w, http.StatusTooManyRequests)
+}
+
 func TestSendOTPHandlerProviderFailure(t *testing.T) {
 	service := &fakeOTPFlowService{sendErr: otp.ErrSMSProviderFailed}
 	router := newOTPFlowTestRouter()

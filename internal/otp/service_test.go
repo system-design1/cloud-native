@@ -103,6 +103,20 @@ func (p *fakeSMSProvider) SendOTP(ctx context.Context, req SMSRequest) (*SMSResu
 	}, nil
 }
 
+type fakeSendRateLimiter struct {
+	err      error
+	calls    int
+	tenantID int64
+	phone    string
+}
+
+func (l *fakeSendRateLimiter) AllowSend(ctx context.Context, tenantID int64, phone string) error {
+	l.calls++
+	l.tenantID = tenantID
+	l.phone = phone
+	return l.err
+}
+
 type fakeRequestLogger struct {
 	createErr   error
 	updateErr   error
@@ -369,6 +383,107 @@ func TestServiceSendOTPExistingOTPGetErrorAborts(t *testing.T) {
 	assert.Equal(t, 1, store.getCalls)
 	assert.Equal(t, 0, requestLogger.createCalls)
 	assert.Equal(t, 0, requestLogger.updateCalls)
+	assert.Equal(t, 0, store.calls)
+	assert.Equal(t, 0, smsProvider.calls)
+}
+
+func TestServiceSendOTPLimiterAllowsSend(t *testing.T) {
+	tenantProvider := &fakeTenantProvider{settings: activeTenantSettings()}
+	store := &fakeOTPStore{}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	limiter := &fakeSendRateLimiter{}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+	service.SetSendRateLimiter(limiter)
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, 1, limiter.calls)
+	assert.Equal(t, int64(42), limiter.tenantID)
+	assert.Equal(t, "+989121234567", limiter.phone)
+	assert.Equal(t, 1, requestLogger.createCalls)
+	assert.Equal(t, 1, store.calls)
+	assert.Equal(t, 1, smsProvider.calls)
+}
+
+func TestServiceSendOTPLimiterRateLimited(t *testing.T) {
+	tenantProvider := &fakeTenantProvider{settings: activeTenantSettings()}
+	store := &fakeOTPStore{}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	limiter := &fakeSendRateLimiter{err: ErrOTPRateLimited}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+	service.SetSendRateLimiter(limiter)
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrOTPRateLimited)
+	assert.Equal(t, 1, limiter.calls)
+	assert.Equal(t, 0, requestLogger.createCalls)
+	assert.Equal(t, 0, requestLogger.updateCalls)
+	assert.Equal(t, 0, store.calls)
+	assert.Equal(t, 0, smsProvider.calls)
+}
+
+func TestServiceSendOTPLimiterInfrastructureError(t *testing.T) {
+	limitErr := errors.New("limiter unavailable")
+	tenantProvider := &fakeTenantProvider{settings: activeTenantSettings()}
+	store := &fakeOTPStore{}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	limiter := &fakeSendRateLimiter{err: limitErr}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+	service.SetSendRateLimiter(limiter)
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.Nil(t, resp)
+	assert.ErrorIs(t, err, limitErr)
+	assert.Equal(t, 1, limiter.calls)
+	assert.Equal(t, 0, requestLogger.createCalls)
+	assert.Equal(t, 0, requestLogger.updateCalls)
+	assert.Equal(t, 0, store.calls)
+	assert.Equal(t, 0, smsProvider.calls)
+}
+
+func TestServiceSendOTPActiveOTPBeforeLimiter(t *testing.T) {
+	tenantProvider := &fakeTenantProvider{settings: activeTenantSettings()}
+	store := &fakeOTPStore{state: activeOTPState("123456")}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	limiter := &fakeSendRateLimiter{}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+	service.SetSendRateLimiter(limiter)
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrOTPAlreadyActive)
+	assert.Equal(t, 0, limiter.calls)
+	assert.Equal(t, 0, requestLogger.createCalls)
+	assert.Equal(t, 0, store.calls)
+	assert.Equal(t, 0, smsProvider.calls)
+}
+
+func TestServiceSendOTPTenantDisabledBeforeLimiter(t *testing.T) {
+	tenantProvider := &fakeTenantProvider{settings: &TenantSettings{ID: 42, Status: "inactive", OTPEnabled: true}}
+	store := &fakeOTPStore{}
+	smsProvider := &fakeSMSProvider{}
+	requestLogger := &fakeRequestLogger{}
+	limiter := &fakeSendRateLimiter{}
+	service := NewService(tenantProvider, store, smsProvider, requestLogger, nil, Config{})
+	service.SetSendRateLimiter(limiter)
+
+	resp, err := service.SendOTP(context.Background(), SendRequest{TenantID: 42, Phone: "+989121234567"})
+
+	require.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrTenantDisabled)
+	assert.Equal(t, 0, limiter.calls)
+	assert.Equal(t, 0, store.getCalls)
+	assert.Equal(t, 0, requestLogger.createCalls)
 	assert.Equal(t, 0, store.calls)
 	assert.Equal(t, 0, smsProvider.calls)
 }

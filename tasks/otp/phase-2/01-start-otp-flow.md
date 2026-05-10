@@ -2373,3 +2373,155 @@ repository integration tests
 service-level tests
 handler-level tests
 -------------------
+next steps:
+structured rate limiting (per phone, per tenant, per IP)
+tracing/metrics
+atomic Redis flow
+------------
+We have completed the core OTP flow:
+- SendOTP
+- VerifyOTP
+- Redis OTP state
+- resend protection
+- request logging
+- verification logging
+- HTTP handlers
+- env-driven config
+- fake SMS provider
+- debug OTP capture
+
+Now I want to implement the first structured rate limiting layer for OTP sends.
+
+Please analyze and design the best small incremental implementation for this codebase.
+
+Goals:
+- prevent OTP abuse/spam
+- keep implementation small and reviewable
+- avoid large architecture changes
+- reuse Redis when possible
+- preserve current OTP resend protection behavior
+
+I want you to analyze:
+1. recommended rate limiting strategy
+2. per-phone vs per-tenant vs per-IP ordering
+3. Redis key design
+4. fixed window vs sliding window vs token bucket
+5. where the logic should live
+6. whether this should be inside otp.Service or middleware
+7. exact files that should change
+8. config/env additions needed
+9. required tests
+10. HTTP/API behavior and status codes
+11. race conditions and edge cases
+12. interaction with existing resend protection
+13. whether resend protection and rate limiting should stay separate or be merged later
+14. what should explicitly be deferred
+
+Constraints:
+- keep architecture clean
+- keep diff small
+- do not redesign the whole app
+- do not add external rate limiting libraries yet
+- prefer Redis-based implementation
+- keep current resend protection behavior unchanged for now
+- preserve current test style
+- avoid generic middleware abstractions unless clearly justified
+
+Please provide:
+- recommended design
+- exact implementation plan
+- exact files to change
+- test plan
+- deferred concerns
+- rollout order
+- risks/tradeoffs
+----------------
+
+Phase 1: Domain/service/API mapping با fake limiter
+Phase 2: Redis limiter repository
+Phase 3: config/env + main.go wiring
+---------
+Implement Phase 1 of OTP send rate limiting: domain/service/API integration only.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/otp/errors.go
+  - internal/otp/interfaces.go
+  - internal/otp/service.go
+  - internal/otp/service_test.go
+  - internal/api/otp_flow_handlers.go
+  - internal/api/otp_flow_handlers_test.go
+- Do not modify repository code.
+- Do not add Redis rate limiter implementation yet.
+- Do not modify config/env yet.
+- Do not modify cmd/server/main.go yet.
+- Do not modify env.example yet.
+- Do not add metrics/tracing.
+- Do not add generic middleware.
+- Keep the diff small and easy to review.
+
+Goal:
+Prepare SendOTP to support an optional send rate limiter dependency, while preserving existing behavior when no limiter is configured.
+
+Requirements:
+
+1. Add domain error:
+   ErrOTPRateLimited
+
+2. Add interface in internal/otp/interfaces.go:
+   type SendRateLimiter interface {
+       AllowSend(ctx context.Context, tenantID int64, phone string) error
+   }
+
+3. Add optional limiter dependency to otp.Service.
+   Keep existing call sites compiling.
+   Prefer a small setter method such as:
+   func (s *Service) SetSendRateLimiter(limiter SendRateLimiter)
+   rather than changing the NewService constructor signature.
+
+4. SendOTP flow:
+   - request validation
+   - tenant lookup
+   - tenant validation
+   - existing active OTP resend protection
+   - then rate limiter check
+   - then existing request generation/logging/save/SMS flow
+
+5. Behavior:
+   - If no limiter is configured, SendOTP behavior remains unchanged.
+   - If active OTP already exists, return ErrOTPAlreadyActive and do not call limiter.
+   - If limiter returns ErrOTPRateLimited, abort before request log/save/SMS.
+   - If limiter returns any other error, abort before request log/save/SMS and wrap the error.
+   - Tenant validation must happen before limiter.
+   - Blocked rate-limited sends should not be logged in otp_requests yet.
+
+6. API mapping:
+   - Map ErrOTPRateLimited to HTTP 429 Too Many Requests.
+   - Keep existing ErrOTPAlreadyActive mapping unchanged.
+   - Do not add Retry-After yet.
+
+7. Tests:
+   Update service tests with fake limiter:
+   - limiter nil: existing SendOTP success still works.
+   - limiter allows send: SendOTP proceeds.
+   - limiter returns ErrOTPRateLimited: SendOTP returns ErrOTPRateLimited.
+   - limiter blocks: no request log, no store save, no SMS.
+   - limiter returns infrastructure error: SendOTP returns error.
+   - active OTP happens before limiter: limiter is not called.
+   - tenant disabled happens before limiter: limiter is not called.
+
+   Update API tests:
+   - ErrOTPRateLimited maps to 429.
+
+Before modifying files:
+- Briefly state exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/otp -v
+- run go test -count=1 ./internal/api -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+-----------------

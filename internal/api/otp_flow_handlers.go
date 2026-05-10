@@ -106,6 +106,8 @@ func handleOTPServiceError(c *gin.Context, err error) {
 		middleware.ErrorHandler(c, apperrors.ErrNotFound("Tenant not found"))
 	case errors.Is(err, otp.ErrOTPAlreadyActive):
 		middleware.ErrorHandler(c, apperrors.NewAppError(http.StatusTooManyRequests, "OTP already active"))
+	case errors.Is(err, otp.ErrOTPRateLimited):
+		middleware.ErrorHandler(c, apperrors.NewAppError(http.StatusTooManyRequests, "OTP send rate limit exceeded"))
 	case errors.Is(err, otp.ErrSMSProviderFailed):
 		middleware.ErrorHandler(c, apperrors.NewAppError(http.StatusBadGateway, "SMS provider failed"))
 	default:

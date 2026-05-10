@@ -15,6 +15,7 @@ type Service struct {
 	tenantSettings TenantSettingsProvider
 	store          OTPStore
 	smsProvider    SMSProvider
+	sendLimiter    SendRateLimiter
 	requestLogger  OTPRequestLogger
 	verifyLogger   OTPVerificationLogger
 	config         Config
@@ -41,6 +42,11 @@ func NewService(
 	}
 }
 
+// SetSendRateLimiter configures an optional limiter for OTP send requests.
+func (s *Service) SetSendRateLimiter(limiter SendRateLimiter) {
+	s.sendLimiter = limiter
+}
+
 // SendOTP will orchestrate tenant lookup, OTP storage, provider send, and logging.
 func (s *Service) SendOTP(ctx context.Context, req SendRequest) (*SendResponse, error) {
 	if err := validateSendRequest(req); err != nil {
@@ -56,6 +62,10 @@ func (s *Service) SendOTP(ctx context.Context, req SendRequest) (*SendResponse, 
 	}
 
 	if err := s.preventActiveResend(ctx, req.TenantID, req.Phone, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+
+	if err := s.allowSend(ctx, req.TenantID, req.Phone); err != nil {
 		return nil, err
 	}
 
@@ -221,6 +231,19 @@ func (s *Service) preventActiveResend(ctx context.Context, tenantID int64, phone
 	}
 
 	_ = s.store.Delete(ctx, tenantID, phone)
+	return nil
+}
+
+func (s *Service) allowSend(ctx context.Context, tenantID int64, phone string) error {
+	if s.sendLimiter == nil {
+		return nil
+	}
+	if err := s.sendLimiter.AllowSend(ctx, tenantID, phone); err != nil {
+		if errors.Is(err, ErrOTPRateLimited) {
+			return ErrOTPRateLimited
+		}
+		return fmt.Errorf("check otp send rate limit: %w", err)
+	}
 	return nil
 }
 
