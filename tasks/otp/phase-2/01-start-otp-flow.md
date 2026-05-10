@@ -2123,3 +2123,89 @@ Important:
 
 
 ---------
+send
+verify
+Redis state
+PostgreSQL request logging
+HTTP APIs
+fake SMS
+debug OTP retrieval
+resend protection
+expiration
+max attempts
+cleanup behavior
+config/env wiring
+handler tests
+service tests
+repository tests
+
+مرحله‌های مهم بعدی احتمالاً یکی از این‌ها هستند:
+
+
+verification logging (otp_verifications)
+- Verification logging repository + migration
+- Wire verification logger into VerifyOTP + main.go
+structured rate limiting (per phone/IP/tenant)
+tracing/metrics
+atomic resend protection (SET NX / Lua)
+real SMS provider abstraction
+OpenAPI / Swagger
+auth/token validation
+production hardening
+integration/e2e docker tests
+admin/reporting APIs
+
+-----------------
+
+Before implementing OTP verification logging, analyze the current VerifyOTP flow, existing OTP request logging repository, and database migration style.
+
+Do not modify files yet.
+
+Goal:
+Design a small implementation for recording OTP verification attempts/results.
+
+Current state:
+- SendOTP logs request/provider result in otp_requests.
+- VerifyOTP is implemented but does not log verification attempts.
+- OTPVerificationLogger interface already exists.
+- OTPVerificationLog model likely exists in internal/otp.
+- No otp_verifications table/repository exists yet.
+
+Please analyze:
+1. Current OTPVerificationLogger interface.
+2. Current OTPVerificationLog model fields.
+3. Current VerifyOTP flow and where logging should happen.
+4. Whether verification logging should be mandatory or best-effort.
+5. What database table/schema is needed.
+6. Whether failed business verifications should be logged.
+7. Whether invalid request validation failures should be logged.
+8. How to handle missing OTP / expired / invalid_code / max_attempts / success.
+9. Whether request_id should be stored when available.
+10. Whether tenant_id, phone, result, reason, attempt_count, metadata, created_at should be stored.
+11. Exact files that should change.
+12. Recommended repository tests.
+13. Recommended service tests.
+14. What should be deferred.
+
+Important constraints:
+- Do not implement anything yet.
+- Do not modify files.
+- Keep the next implementation diff small.
+- Do not modify HTTP handlers/routes unless absolutely necessary.
+- Do not add metrics/tracing yet.
+- Do not add async logging/outbox.
+- Do not add rate limiting yet.
+- Follow current repository and migration style.
+- Prefer database/sql and existing sql-migrate format.
+
+Return:
+1. Recommended logging design.
+2. Exact files that should change.
+3. Proposed migration/table schema.
+4. Repository implementation approach.
+5. VerifyOTP wiring approach.
+6. Failure policy.
+7. Tests to add.
+8. Deferred concerns.
+
+---------------
