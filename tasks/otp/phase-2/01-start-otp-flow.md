@@ -1221,6 +1221,7 @@ VerifyOTP service ✅
 HTTP handlers/routes ❌
 main.go wiring ❌
 config/env wiring کامل ❌
+TODO: Add OTP send resend cooldown per tenant+phone to prevent repeated send requests.
 verification logging repository ❌
 metrics/tracing business-level ❌
 manual end-to-end API test ❌
@@ -1401,3 +1402,154 @@ Important:
 - Summarize changed files and test results.
 
 ----------
+Before wiring real OTP dependencies into cmd/server/main.go, analyze the current application startup and dependency initialization flow.
+
+Do not modify any files yet.
+
+Goal:
+Design a small, safe wiring plan so POST /v1/otp/send and POST /v1/otp/verify are registered and usable in the running server.
+
+Current state:
+- OTP service SendOTP and VerifyOTP are implemented.
+- RedisOTPStore exists.
+- CachedTenantSettingsProvider exists.
+- Fake SMS provider exists.
+- OTPRequestLogRepository exists.
+- OTP HTTP handlers/routes exist.
+- SetupRoutes accepts optional OTP service.
+- cmd/server/main.go has not been wired yet.
+
+Please analyze:
+1. How PostgreSQL is initialized in main.go.
+2. How Redis is initialized in main.go.
+3. How existing repositories are constructed.
+4. How SetupRoutes is currently called.
+5. Which OTP dependencies need to be constructed.
+6. Where config values for OTP should come from now.
+7. Whether to use otp.DefaultConfig for now or existing config fields.
+8. How to pass otp.Service into SetupRoutes.
+9. Whether lifecycle/shutdown needs changes.
+10. What tests or manual checks should be run.
+11. What should be deferred.
+
+Important constraints:
+- Do not implement anything yet.
+- Do not modify files.
+- Keep the next implementation diff small.
+- Do not add new config/env wiring unless absolutely necessary.
+- Do not modify repository implementations.
+- Do not modify OTP business logic.
+- Do not modify handlers unless a compile-time mismatch is found.
+- Do not add metrics/tracing/auth/rate limiting.
+- Do not implement verification DB logging.
+- Prefer using existing clients and constructors.
+
+Return:
+1. Recommended wiring approach.
+2. Exact files that should change.
+3. Dependency construction order.
+4. Config/default strategy.
+5. Manual validation steps after implementation.
+6. Risks or edge cases.
+
+--------
+
+Wire real OTP dependencies into cmd/server/main.go.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - cmd/server/main.go
+- Do not modify internal/api.
+- Do not modify internal/otp.
+- Do not modify internal/repository.
+- Do not modify internal/sms.
+- Do not modify config/env loading.
+- Do not modify routes/handlers.
+- Do not modify migrations.
+- Do not add metrics/tracing/auth/rate limiting.
+- Do not implement verification logging.
+- Keep the diff small and easy to review.
+
+Goal:
+Register the real OTP send/verify HTTP endpoints in the running server by constructing otp.Service and passing it to api.SetupRoutes.
+
+Implementation requirements:
+1. Use existing PostgreSQL and Redis clients already initialized in main.go.
+2. Reuse existing tenant settings repository if already constructed. Do not create duplicate variables with conflicting names.
+3. Use otp.DefaultConfig() for now.
+4. Construct:
+   - tenant settings repository if not already available
+   - CachedTenantSettingsProvider using Redis + tenant settings repository + otpConfig.TenantCacheTTL
+   - RedisOTPStore using Redis
+   - Fake SMS provider
+   - OTPRequestLogRepository using PostgreSQL
+   - otp.Service with verifyLogger nil
+5. Pass otpService into api.SetupRoutes using the existing optional OTP route registration.
+6. Do not change lifecycle/shutdown behavior.
+7. Do not add new config fields.
+
+Important:
+- Before modifying files, briefly state the exact place in main.go where you will wire this and why.
+- Keep existing benchmark routes and health routes unchanged.
+- Keep existing startup behavior unchanged.
+- If there is a compile-time mismatch with SetupRoutes, make the minimal fix only if absolutely necessary.
+
+After implementation:
+- run gofmt on cmd/server/main.go
+- run go test -count=1 ./...
+- summarize changed files and test results.
+
+----------
+
+I found a possible bug in the OTP send flow and I want you to debug it carefully before changing anything.
+
+Current behavior:
+
+1. I successfully sent OTP requests for valid tenants.
+2. Then I sent a request with a tenant_id that does not exist in the database.
+3. After that, every subsequent request started returning:
+
+{
+  "error": "Forbidden",
+  "message": "Tenant is disabled",
+  "code": 403
+}
+
+even when:
+- I changed the phone number
+- I used another request
+- the tenant should be valid
+
+Example request:
+
+curl --request POST \
+  --url http://localhost:8080/v1/otp/send \
+  --header 'content-type: application/json' \
+  --data '{
+    "tenant_id": 200,
+    "phone": "+989121234568",
+    "metadata": {
+      "source": "manual-test"
+    }
+}'
+
+I do NOT want you to immediately patch the code.
+
+First:
+1. Analyze the possible root causes.
+2. Inspect the current SendOTP flow carefully.
+3. Inspect tenant cache behavior carefully.
+4. Inspect whether invalid tenant results are being cached incorrectly.
+5. Inspect whether tenant status validation logic is wrong.
+6. Inspect whether Redis cache keys or cache overwrite logic can poison future requests.
+7. Explain the exact root cause with code references.
+8. Tell me the minimal correct fix.
+9. Only after the analysis, propose the implementation plan.
+
+Do not make broad refactors.
+Do not redesign the architecture.
+Focus only on the root cause and the smallest safe fix.
+
+-------------
