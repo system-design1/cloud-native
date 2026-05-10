@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,9 +15,11 @@ import (
 	"go-backend-service/internal/lifecycle"
 	"go-backend-service/internal/logger"
 	"go-backend-service/internal/mongo"
+	"go-backend-service/internal/otp"
 	"go-backend-service/internal/redis"
 	"go-backend-service/internal/repository"
 	"go-backend-service/internal/server"
+	"go-backend-service/internal/sms"
 	"go-backend-service/internal/tracer"
 
 	"github.com/gin-gonic/gin"
@@ -135,6 +138,15 @@ func main() {
 	tenantSettingsInsertRepo := repository.NewTenantSettingsInsertRepository(database)
 	redisRepo := repository.NewRedisBenchmarkRepository(rdb)
 	mongoRepo := repository.NewMongoBenchmarkRepository(mongoClient, cfg.Mongo.DB, cfg.Mongo.Collection)
+	otpConfig := otp.DefaultConfig()
+	otpTenantSettingsProvider := repository.NewCachedTenantSettingsProvider(rdb, tenantSettingsRepo, otpConfig.TenantCacheTTL)
+	otpStore := repository.NewRedisOTPStore(rdb)
+	otpSMSProvider := sms.NewFakeProvider()
+	if strings.EqualFold(os.Getenv("OTP_FAKE_SMS_DEBUG_CODE_REDIS"), "true") && cfg.App.GinMode != gin.ReleaseMode {
+		otpSMSProvider = sms.NewFakeProviderWithDebugCodeCapture(rdb, minDuration(time.Minute, otpConfig.TTL))
+	}
+	otpRequestLogger := repository.NewOTPRequestLogRepository(database)
+	otpService := otp.NewService(otpTenantSettingsProvider, otpStore, otpSMSProvider, otpRequestLogger, nil, otpConfig)
 	log.Info().Msg("Repositories initialized successfully")
 
 	// Set Gin mode from configuration
@@ -175,7 +187,7 @@ func main() {
 
 	// Setup routes (pass lifecycle manager and repositories)
 	log.Debug().Msg("Setting up routes...")
-	api.SetupRoutes(router, lifecycleMgr, tenantSettingsRepo, tenantSettingsInsertRepo, redisRepo, mongoRepo)
+	api.SetupRoutes(router, lifecycleMgr, tenantSettingsRepo, tenantSettingsInsertRepo, redisRepo, mongoRepo, otpService)
 	log.Info().Msg("Routes setup completed")
 
 	// Create and start server
@@ -260,4 +272,11 @@ func main() {
 	log.Info().
 		Str("state", lifecycleMgr.GetState().String()).
 		Msg("Server exited gracefully")
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
 }

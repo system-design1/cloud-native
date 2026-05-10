@@ -1221,6 +1221,7 @@ VerifyOTP service ✅
 HTTP handlers/routes ❌
 main.go wiring ❌
 config/env wiring کامل ❌
+TODO: Add OTP send resend cooldown per tenant+phone to prevent repeated send requests.
 verification logging repository ❌
 metrics/tracing business-level ❌
 manual end-to-end API test ❌
@@ -1399,5 +1400,401 @@ Important:
   - go test -count=1 ./internal/api -v
   - go test -count=1 ./...
 - Summarize changed files and test results.
+
+----------
+Before wiring real OTP dependencies into cmd/server/main.go, analyze the current application startup and dependency initialization flow.
+
+Do not modify any files yet.
+
+Goal:
+Design a small, safe wiring plan so POST /v1/otp/send and POST /v1/otp/verify are registered and usable in the running server.
+
+Current state:
+- OTP service SendOTP and VerifyOTP are implemented.
+- RedisOTPStore exists.
+- CachedTenantSettingsProvider exists.
+- Fake SMS provider exists.
+- OTPRequestLogRepository exists.
+- OTP HTTP handlers/routes exist.
+- SetupRoutes accepts optional OTP service.
+- cmd/server/main.go has not been wired yet.
+
+Please analyze:
+1. How PostgreSQL is initialized in main.go.
+2. How Redis is initialized in main.go.
+3. How existing repositories are constructed.
+4. How SetupRoutes is currently called.
+5. Which OTP dependencies need to be constructed.
+6. Where config values for OTP should come from now.
+7. Whether to use otp.DefaultConfig for now or existing config fields.
+8. How to pass otp.Service into SetupRoutes.
+9. Whether lifecycle/shutdown needs changes.
+10. What tests or manual checks should be run.
+11. What should be deferred.
+
+Important constraints:
+- Do not implement anything yet.
+- Do not modify files.
+- Keep the next implementation diff small.
+- Do not add new config/env wiring unless absolutely necessary.
+- Do not modify repository implementations.
+- Do not modify OTP business logic.
+- Do not modify handlers unless a compile-time mismatch is found.
+- Do not add metrics/tracing/auth/rate limiting.
+- Do not implement verification DB logging.
+- Prefer using existing clients and constructors.
+
+Return:
+1. Recommended wiring approach.
+2. Exact files that should change.
+3. Dependency construction order.
+4. Config/default strategy.
+5. Manual validation steps after implementation.
+6. Risks or edge cases.
+
+--------
+
+Wire real OTP dependencies into cmd/server/main.go.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - cmd/server/main.go
+- Do not modify internal/api.
+- Do not modify internal/otp.
+- Do not modify internal/repository.
+- Do not modify internal/sms.
+- Do not modify config/env loading.
+- Do not modify routes/handlers.
+- Do not modify migrations.
+- Do not add metrics/tracing/auth/rate limiting.
+- Do not implement verification logging.
+- Keep the diff small and easy to review.
+
+Goal:
+Register the real OTP send/verify HTTP endpoints in the running server by constructing otp.Service and passing it to api.SetupRoutes.
+
+Implementation requirements:
+1. Use existing PostgreSQL and Redis clients already initialized in main.go.
+2. Reuse existing tenant settings repository if already constructed. Do not create duplicate variables with conflicting names.
+3. Use otp.DefaultConfig() for now.
+4. Construct:
+   - tenant settings repository if not already available
+   - CachedTenantSettingsProvider using Redis + tenant settings repository + otpConfig.TenantCacheTTL
+   - RedisOTPStore using Redis
+   - Fake SMS provider
+   - OTPRequestLogRepository using PostgreSQL
+   - otp.Service with verifyLogger nil
+5. Pass otpService into api.SetupRoutes using the existing optional OTP route registration.
+6. Do not change lifecycle/shutdown behavior.
+7. Do not add new config fields.
+
+Important:
+- Before modifying files, briefly state the exact place in main.go where you will wire this and why.
+- Keep existing benchmark routes and health routes unchanged.
+- Keep existing startup behavior unchanged.
+- If there is a compile-time mismatch with SetupRoutes, make the minimal fix only if absolutely necessary.
+
+After implementation:
+- run gofmt on cmd/server/main.go
+- run go test -count=1 ./...
+- summarize changed files and test results.
+
+----------
+
+I found a possible bug in the OTP send flow and I want you to debug it carefully before changing anything.
+
+Current behavior:
+
+1. I successfully sent OTP requests for valid tenants.
+2. Then I sent a request with a tenant_id that does not exist in the database.
+3. After that, every subsequent request started returning:
+
+{
+  "error": "Forbidden",
+  "message": "Tenant is disabled",
+  "code": 403
+}
+
+even when:
+- I changed the phone number
+- I used another request
+- the tenant should be valid
+
+Example request:
+
+curl --request POST \
+  --url http://localhost:8080/v1/otp/send \
+  --header 'content-type: application/json' \
+  --data '{
+    "tenant_id": 200,
+    "phone": "+989121234568",
+    "metadata": {
+      "source": "manual-test"
+    }
+}'
+
+I do NOT want you to immediately patch the code.
+
+First:
+1. Analyze the possible root causes.
+2. Inspect the current SendOTP flow carefully.
+3. Inspect tenant cache behavior carefully.
+4. Inspect whether invalid tenant results are being cached incorrectly.
+5. Inspect whether tenant status validation logic is wrong.
+6. Inspect whether Redis cache keys or cache overwrite logic can poison future requests.
+7. Explain the exact root cause with code references.
+8. Tell me the minimal correct fix.
+9. Only after the analysis, propose the implementation plan.
+
+Do not make broad refactors.
+Do not redesign the architecture.
+Focus only on the root cause and the smallest safe fix.
+
+-------------
+Before implementing anything, analyze a safe local-development way to inspect the plaintext OTP code generated by SendOTP for manual VerifyOTP testing.
+
+Current problem:
+- Fake SMS provider intentionally does not expose OTP code.
+- SendOTP stores only HashCode(code) in Redis.
+- For manual end-to-end testing of /v1/otp/verify, I need a temporary local/dev-only way to retrieve the generated plaintext OTP code.
+- I do NOT want to expose OTP code in normal API responses.
+- I do NOT want to log OTP code in normal logs.
+- I do NOT want this to be unsafe for production.
+
+Do not modify files yet.
+
+Please analyze possible approaches:
+
+1. Add dev-only Redis debug key
+   - Example key: debug:otp-code:{tenant_id}:{phone}
+   - Store plaintext code with very short TTL
+   - Only enabled by explicit config/env flag
+
+2. Add debug field to fake SMS provider result
+   - Only if enabled by explicit config/env flag
+   - Must not be written to normal request logs unless explicitly intended
+
+3. Add dev-only endpoint
+   - Example: GET /debug/otp-code
+   - Discuss why this may be risky and whether to avoid it
+
+4. Add database debug table
+   - Discuss why this is likely too heavy/risky for this phase
+
+5. Add local CLI/script-only helper
+   - Discuss whether this is better than code changes
+
+Please answer:
+- Which approach is safest and smallest for this project right now?
+- Where should it live architecturally?
+- Should this be implemented inside otp.Service, fake SMS provider, or a separate debug sink/port?
+- How should it be enabled/disabled?
+- What default should be used?
+- What Redis key and TTL should be used if Redis is chosen?
+- How do we guarantee it does not run in production accidentally?
+- What tests should be added?
+- What files would need to change?
+- What should be deferred?
+
+Important constraints:
+- Do not expose OTP code in SendOTP HTTP response.
+- Do not add a public debug endpoint unless strongly justified.
+- Do not store plaintext OTP in the main OTP state.
+- Do not store plaintext OTP in otp_requests logs.
+- Keep production behavior secure by default.
+- Keep the next implementation small and reversible.
+- Prefer no code changes if a safe manual workflow is enough.
+- If code changes are recommended, propose the smallest safe slice only.
+
+Return:
+1. Recommended approach
+2. Security risks
+3. Exact implementation plan
+4. Files that would change
+5. Tests to add
+6. Manual usage workflow
+
+I think the best design is: 
+dev-only OTP debug sink
+disabled by default
+stores plaintext code in Redis debug key with TTL <= OTP TTL
+never returned in API response
+never stored in otp_requests
+
+------------
+
+Review your previous recommendation for the dev-only OTP plaintext debug capture.
+
+I think the proposed service-level OTPDebugCodeSink may be too large for the next slice because it touches:
+- internal/otp/interfaces.go
+- internal/otp/service.go
+- internal/otp/service_test.go
+- internal/repository
+- cmd/server/main.go
+
+Please re-analyze and compare two options:
+
+Option A:
+Service-level OTPDebugCodeSink port.
+
+Option B:
+Fake SMS provider captures the plaintext OTP code into a dev-only Redis debug key, because SMSRequest.Code already reaches the fake provider.
+
+Context:
+- This is only for local manual testing.
+- We do not want to expose the OTP code in API responses.
+- We do not want to store it in otp_requests.
+- We do not want to log it.
+- We want a very small, reversible implementation.
+- Fake SMS provider is already clearly a simulation component.
+- Production real providers would not include this behavior.
+
+Please analyze:
+1. Which option produces the smallest safe diff?
+2. Which option better preserves otp.Service cleanliness?
+3. Which option is less risky for production?
+4. Which files would change for each option?
+5. How to enable it safely only in local/dev?
+6. Whether Redis should be injected into fake provider or whether another sink abstraction is still worth it.
+7. Whether this should be implemented now or deferred.
+8. If implementing now, propose the smallest safe implementation plan.
+
+Important:
+- Do not modify files yet.
+- Do not implement anything.
+- Prefer local/dev-only safety and small diff.
+- Do not add debug HTTP endpoints.
+- Do not expose OTP code in SendOTP response.
+- Do not store plaintext OTP in otp_requests or main OTP Redis state.
+
+----
+
+Review your previous recommendation for the dev-only OTP plaintext debug capture.
+
+I think the proposed service-level OTPDebugCodeSink may be too large for the next slice because it touches:
+- internal/otp/interfaces.go
+- internal/otp/service.go
+- internal/otp/service_test.go
+- internal/repository
+- cmd/server/main.go
+
+Please re-analyze and compare two options:
+
+Option A:
+Service-level OTPDebugCodeSink port.
+
+Option B:
+Fake SMS provider captures the plaintext OTP code into a dev-only Redis debug key, because SMSRequest.Code already reaches the fake provider.
+
+Context:
+- This is only for local manual testing.
+- We do not want to expose the OTP code in API responses.
+- We do not want to store it in otp_requests.
+- We do not want to log it.
+- We want a very small, reversible implementation.
+- Fake SMS provider is already clearly a simulation component.
+- Production real providers would not include this behavior.
+
+Please analyze:
+1. Which option produces the smallest safe diff?
+2. Which option better preserves otp.Service cleanliness?
+3. Which option is less risky for production?
+4. Which files would change for each option?
+5. How to enable it safely only in local/dev?
+6. Whether Redis should be injected into fake provider or whether another sink abstraction is still worth it.
+7. Whether this should be implemented now or deferred.
+8. If implementing now, propose the smallest safe implementation plan.
+
+Important:
+- Do not modify files yet.
+- Do not implement anything.
+- Prefer local/dev-only safety and small diff.
+- Do not add debug HTTP endpoints.
+- Do not expose OTP code in SendOTP response.
+- Do not store plaintext OTP in otp_requests or main OTP Redis state.
+
+-----
+
+Implement dev-only OTP code capture inside the fake SMS provider.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/sms/fake_provider.go
+  - internal/sms/fake_provider_test.go
+  - cmd/server/main.go
+- Do not modify otp.Service.
+- Do not modify internal/otp interfaces.
+- Do not modify repository package.
+- Do not modify API handlers/routes.
+- Do not store plaintext OTP in otp_requests.
+- Do not return plaintext OTP in API responses.
+- Do not log plaintext OTP.
+- Do not add a debug HTTP endpoint.
+- Do not add generic options framework unless absolutely necessary.
+- Keep the diff small and reversible.
+
+Goal:
+Allow local/development manual VerifyOTP testing by optionally storing plaintext OTP code in a separate Redis debug key from the fake SMS provider.
+
+Design:
+- Keep sms.NewFakeProvider() behavior unchanged and secure by default.
+- Add a new explicit constructor:
+  func NewFakeProviderWithDebugCodeCapture(client *redis.Client, ttl time.Duration) *FakeProvider
+- Debug capture is enabled only when this constructor is used and client is non-nil.
+- Store debug code only after simulated SMS send succeeds.
+- Do not write debug code if context is canceled or timed out.
+
+Redis debug key:
+- Format:
+  debug:otp-code:{tenant_id}:{phone}
+- Value should be JSON with:
+  - request_id
+  - tenant_id
+  - phone
+  - code
+  - provider
+  - created_at
+- TTL should be the provided ttl.
+- If ttl <= 0, use a safe short default such as 60 seconds.
+- Do not store code in the normal OTP state key.
+- Do not include code in SMSResult.RawResponse.
+
+Failure behavior:
+- If debug Redis write fails, do not fail SendOTP.
+- Debug capture is best-effort local tooling.
+
+cmd/server/main.go wiring:
+- Default must remain sms.NewFakeProvider().
+- Enable debug capture only when:
+  - environment variable OTP_FAKE_SMS_DEBUG_CODE_REDIS is true
+  - and Gin mode is not release
+- Use existing Redis client.
+- Use a short TTL, preferably min(60s, otpConfig.TTL) or just 60s if simpler.
+- Do not add full config/env struct fields in this step.
+
+Tests:
+- Existing fake provider tests must keep passing.
+- Add tests:
+  1. Default fake provider does not expose code in RawResponse.
+  2. Debug constructor stores code in Redis under debug:otp-code:{tenant_id}:{phone}.
+  3. Stored JSON contains request_id, tenant_id, phone, code, provider, created_at.
+  4. Debug key has TTL.
+  5. Context cancellation/timeout does not write debug key.
+- Use existing Redis integration test style if Redis is needed.
+- Skip Redis-dependent tests cleanly when Redis is unavailable.
+- Do not add new dependencies.
+
+Before modifying files:
+- Briefly state the exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/sms -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
 
 ----------
