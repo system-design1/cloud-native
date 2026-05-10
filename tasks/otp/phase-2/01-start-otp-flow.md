@@ -1798,3 +1798,184 @@ After implementation:
 - summarize changed files and test results.
 
 ----------
+OTP config/env wiring ❌
+resend cooldown / send rate protection ❌
+verification logging repository ❌
+business metrics/tracing ❌
+better migration command/Makefile support ❌
+real SMS provider abstraction/router ❌
+auth/token validation ❌
+OpenAPI/docs ❌
+
+
+----
+Before implementing OTP-related env/config wiring, analyze the current config loading system and current OTP/fake SMS hardcoded defaults.
+
+Do not modify files yet.
+
+Goal:
+Design a small, consistent implementation plan to move OTP and fake SMS settings into environment/config files.
+
+Current state:
+- otp.DefaultConfig() is used in cmd/server/main.go.
+- Fake SMS provider has default delay 20ms to 30ms.
+- Dev-only fake SMS OTP capture is controlled by env var OTP_FAKE_SMS_DEBUG_CODE_REDIS directly in main.go.
+- Some values are currently hardcoded/defaulted in code.
+- I want these settings to be configurable through env and documented in .env / env.example if those files exist.
+
+Please analyze:
+1. Current config package structure.
+2. Current env loading style.
+3. Current .env and env.example files, if present.
+4. How duration values are currently parsed.
+5. Where OTP config should be added.
+6. How to map env values into otp.Config.
+7. How to configure fake SMS delay range.
+8. How to configure fake SMS debug capture safely.
+9. Which values should remain defaults if env is missing.
+10. Validation rules for invalid env values.
+11. Exact files that should change.
+12. Tests that should be added.
+13. What should be deferred.
+
+Proposed env variables:
+- OTP_CODE_LENGTH
+- OTP_TTL
+- OTP_MAX_ATTEMPTS
+- OTP_TENANT_CACHE_TTL
+- OTP_PROVIDER_TIMEOUT
+- OTP_FAKE_SMS_MIN_DELAY
+- OTP_FAKE_SMS_MAX_DELAY
+- OTP_FAKE_SMS_DEBUG_CODE_REDIS
+- OTP_FAKE_SMS_DEBUG_CODE_TTL
+
+Important constraints:
+- Do not implement anything yet.
+- Do not modify files.
+- Keep the next implementation diff small.
+- Preserve current defaults when env vars are not set.
+- Do not break existing config tests.
+- Do not expose OTP codes in API responses or logs.
+- Do not enable debug capture by default.
+- Keep debug capture disabled unless explicitly enabled.
+- Prefer existing config parsing patterns over new abstractions.
+- Update env.example if it exists.
+- Update .env only if the project already tracks and uses it for local development.
+- Do not add new dependencies.
+
+Return:
+1. Recommended config design.
+2. Env variable names and default values.
+3. Exact files that should change.
+4. Validation/error behavior.
+5. Required tests.
+6. Deferred concerns.
+```
+--------------
+
+Implement OTP and fake SMS env/config wiring.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/config/config.go
+  - internal/config/config_test.go
+  - internal/sms/fake_provider.go
+  - internal/sms/fake_provider_test.go
+  - cmd/server/main.go
+  - env.example
+- Do not modify otp.Service business logic.
+- Do not modify repository code.
+- Do not modify API handlers/routes.
+- Do not modify migrations.
+- Do not add new dependencies.
+- Do not update .env.
+- Keep the diff small and easy to review.
+
+Goal:
+Move OTP-related runtime values from hardcoded/default-only usage into the existing config/env system while preserving current defaults.
+
+Config requirements:
+1. Add OTPConfig to internal/config:
+   - CodeLength int
+   - TTL time.Duration
+   - MaxAttempts int
+   - TenantCacheTTL time.Duration
+   - ProviderTimeout time.Duration
+   - FakeSMSMinDelay time.Duration
+   - FakeSMSMaxDelay time.Duration
+   - FakeSMSDebugCodeRedis bool
+   - FakeSMSDebugCodeTTL time.Duration
+
+2. Add OTP OTPConfig to root Config.
+
+3. Load env vars:
+   - OTP_CODE_LENGTH default 6
+   - OTP_TTL default 2m
+   - OTP_MAX_ATTEMPTS default 3
+   - OTP_TENANT_CACHE_TTL default 5m
+   - OTP_PROVIDER_TIMEOUT default 2s
+   - OTP_FAKE_SMS_MIN_DELAY default 20ms
+   - OTP_FAKE_SMS_MAX_DELAY default 30ms
+   - OTP_FAKE_SMS_DEBUG_CODE_REDIS default false
+   - OTP_FAKE_SMS_DEBUG_CODE_TTL default 60s
+
+4. Validation:
+   - OTP_CODE_LENGTH must be between 1 and 18
+   - OTP_TTL must be > 0
+   - OTP_MAX_ATTEMPTS must be > 0
+   - OTP_TENANT_CACHE_TTL must be > 0
+   - OTP_PROVIDER_TIMEOUT must be > 0
+   - OTP_FAKE_SMS_MIN_DELAY must be >= 0
+   - OTP_FAKE_SMS_MAX_DELAY must be >= 0 and >= min delay
+   - OTP_FAKE_SMS_DEBUG_CODE_TTL must be > 0
+
+5. Bool parsing:
+   - Keep existing style if there is one.
+   - Accept true and 1 as true.
+   - Missing/other values should be false unless existing config behavior says otherwise.
+
+Fake SMS requirements:
+- Keep sms.NewFakeProvider() unchanged with current default 20ms to 30ms behavior.
+- Add a simple constructor for configurable delay if needed, for example:
+  NewFakeProviderWithDelay(minDelay, maxDelay time.Duration)
+- Do not introduce an options framework.
+- Existing tests must keep passing.
+
+main.go requirements:
+- Use cfg.OTP to build otp.Config instead of raw otp.DefaultConfig().
+- Use configured fake SMS delay.
+- Keep debug capture disabled unless:
+  - cfg.OTP.FakeSMSDebugCodeRedis is true
+  - Gin mode is not release
+- Debug code capture TTL should be min(cfg.OTP.FakeSMSDebugCodeTTL, cfg.OTP.TTL).
+- Do not read OTP_FAKE_SMS_DEBUG_CODE_REDIS directly in main.go anymore.
+
+env.example:
+- Add all OTP env vars with defaults and short comments if the file style supports comments.
+
+Tests:
+- Add config tests for:
+  - defaults
+  - env overrides
+  - invalid duration
+  - invalid code length
+  - max attempts <= 0
+  - fake SMS max delay < min delay
+  - debug flag true and 1
+  - debug flag default false
+- Add/adjust SMS tests if configurable delay constructor is added.
+
+Before modifying files:
+- Briefly state exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/config -v
+- run go test -count=1 ./internal/sms -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+
+----------
+

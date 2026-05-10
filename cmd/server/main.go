@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -138,12 +137,23 @@ func main() {
 	tenantSettingsInsertRepo := repository.NewTenantSettingsInsertRepository(database)
 	redisRepo := repository.NewRedisBenchmarkRepository(rdb)
 	mongoRepo := repository.NewMongoBenchmarkRepository(mongoClient, cfg.Mongo.DB, cfg.Mongo.Collection)
-	otpConfig := otp.DefaultConfig()
+	otpConfig := otp.Config{
+		CodeLength:      cfg.OTP.CodeLength,
+		TTL:             cfg.OTP.TTL,
+		MaxAttempts:     cfg.OTP.MaxAttempts,
+		TenantCacheTTL:  cfg.OTP.TenantCacheTTL,
+		ProviderTimeout: cfg.OTP.ProviderTimeout,
+	}
 	otpTenantSettingsProvider := repository.NewCachedTenantSettingsProvider(rdb, tenantSettingsRepo, otpConfig.TenantCacheTTL)
 	otpStore := repository.NewRedisOTPStore(rdb)
-	otpSMSProvider := sms.NewFakeProvider()
-	if strings.EqualFold(os.Getenv("OTP_FAKE_SMS_DEBUG_CODE_REDIS"), "true") && cfg.App.GinMode != gin.ReleaseMode {
-		otpSMSProvider = sms.NewFakeProviderWithDebugCodeCapture(rdb, minDuration(time.Minute, otpConfig.TTL))
+	otpSMSProvider := sms.NewFakeProviderWithDelay(cfg.OTP.FakeSMSMinDelay, cfg.OTP.FakeSMSMaxDelay)
+	if cfg.OTP.FakeSMSDebugCodeRedis && cfg.App.GinMode != gin.ReleaseMode {
+		otpSMSProvider = sms.NewFakeProviderWithDelayAndDebugCodeCapture(
+			cfg.OTP.FakeSMSMinDelay,
+			cfg.OTP.FakeSMSMaxDelay,
+			rdb,
+			minDuration(cfg.OTP.FakeSMSDebugCodeTTL, otpConfig.TTL),
+		)
 	}
 	otpRequestLogger := repository.NewOTPRequestLogRepository(database)
 	otpService := otp.NewService(otpTenantSettingsProvider, otpStore, otpSMSProvider, otpRequestLogger, nil, otpConfig)

@@ -37,19 +37,36 @@ type debugCodeValue struct {
 
 // NewFakeProvider creates a fake SMS provider with realistic simulated latency.
 func NewFakeProvider() *FakeProvider {
-	return newFakeProviderWithDelay(20*time.Millisecond, 30*time.Millisecond)
+	return NewFakeProviderWithDelay(20*time.Millisecond, 30*time.Millisecond)
+}
+
+// NewFakeProviderWithDelay creates a fake SMS provider with configurable simulated latency.
+func NewFakeProviderWithDelay(minDelay, maxDelay time.Duration) *FakeProvider {
+	return newFakeProviderWithDelay(minDelay, maxDelay)
 }
 
 // NewFakeProviderWithDebugCodeCapture creates a fake provider that best-effort
 // stores plaintext OTP codes in Redis for local manual testing only.
 func NewFakeProviderWithDebugCodeCapture(client *redis.Client, ttl time.Duration) *FakeProvider {
 	provider := NewFakeProvider()
-	provider.debugCodeClient = client
-	provider.debugCodeTTL = ttl
-	if provider.debugCodeTTL <= 0 {
-		provider.debugCodeTTL = defaultDebugCodeTTL
-	}
+	provider.enableDebugCodeCapture(client, ttl)
 	return provider
+}
+
+// NewFakeProviderWithDelayAndDebugCodeCapture creates a fake provider with
+// configurable latency and local-only Redis debug code capture.
+func NewFakeProviderWithDelayAndDebugCodeCapture(minDelay, maxDelay time.Duration, client *redis.Client, ttl time.Duration) *FakeProvider {
+	provider := NewFakeProviderWithDelay(minDelay, maxDelay)
+	provider.enableDebugCodeCapture(client, ttl)
+	return provider
+}
+
+func (p *FakeProvider) enableDebugCodeCapture(client *redis.Client, ttl time.Duration) {
+	p.debugCodeClient = client
+	p.debugCodeTTL = ttl
+	if p.debugCodeTTL <= 0 {
+		p.debugCodeTTL = defaultDebugCodeTTL
+	}
 }
 
 func newFakeProviderWithDelay(minDelay, maxDelay time.Duration) *FakeProvider {
