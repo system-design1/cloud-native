@@ -2525,3 +2525,150 @@ After implementation:
 - run go test -count=1 ./...
 - summarize changed files and test results.
 -----------------
+Analyze Phase 2 of OTP send rate limiting: Redis-backed implementation.
+
+Current state:
+- Phase 1 is done and committed.
+- internal/otp has SendRateLimiter interface:
+  AllowSend(ctx context.Context, tenantID int64, phone string) error
+- otp.Service.SendOTP calls the limiter after active OTP resend protection and before request logging/save/SMS.
+- ErrOTPRateLimited exists and maps to HTTP 429.
+- No Redis limiter implementation exists yet.
+- No config/main wiring exists yet for the limiter.
+
+Goal:
+Design a small Redis-backed fixed-window implementation of SendRateLimiter.
+
+Do not modify files yet.
+
+Please analyze:
+1. Recommended Redis fixed-window strategy.
+2. Redis key format.
+3. Whether to use INCR+EXPIRE pipeline or Lua for atomicity.
+4. How to avoid keys without TTL.
+5. What constructor/config fields the repository should accept.
+6. Whether this implementation should live in internal/repository.
+7. How to map limit exceeded to otp.ErrOTPRateLimited.
+8. How to handle Redis infrastructure errors.
+9. Whether remaining quota or retry-after should be returned now or deferred.
+10. Required tests.
+11. Edge cases:
+    - limit <= 0
+    - window <= 0
+    - Redis unavailable
+    - TTL missing
+    - different tenant/phone isolation
+    - concurrent calls
+12. What should be deferred to Phase 3 config/main wiring.
+
+Constraints:
+- Do not implement yet.
+- Do not modify otp.Service.
+- Do not modify config/env yet.
+- Do not modify cmd/server/main.go yet.
+- Do not modify API handlers.
+- Keep diff small.
+- Use existing Redis client style.
+- Follow existing repository test style.
+- Do not add new dependencies.
+
+Return:
+1. Recommended implementation design.
+2. Exact files to change.
+3. Redis command/script design.
+4. Error behavior.
+5. Tests to add.
+6. Deferred concerns.
+
+---------
+
+Implement Phase 2 of OTP send rate limiting: Redis-backed fixed-window limiter.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Add only:
+  - internal/repository/otp_send_rate_limiter_redis.go
+  - internal/repository/otp_send_rate_limiter_redis_test.go
+- Do not modify internal/otp.
+- Do not modify otp.Service.
+- Do not modify API handlers/routes.
+- Do not modify config/env.
+- Do not modify cmd/server/main.go.
+- Do not modify env.example.
+- Do not add new dependencies.
+- Keep the diff small and easy to review.
+
+Goal:
+Add a Redis-backed implementation of otp.SendRateLimiter.
+
+Requirements:
+
+1. Add type:
+   RedisOTPSendRateLimiter
+
+2. Add constructor:
+   func NewRedisOTPSendRateLimiter(client *redis.Client, limit int, window time.Duration) *RedisOTPSendRateLimiter
+
+3. Implement:
+   func (l *RedisOTPSendRateLimiter) AllowSend(ctx context.Context, tenantID int64, phone string) error
+
+4. Redis key format:
+   otp:rate:send:{tenant_id}:{phone}
+
+5. Use Redis Lua script, not plain INCR + EXPIRE pipeline.
+
+Use guarded Lua behavior:
+- INCR key
+- if current count == 1 OR key has no TTL, set PEXPIRE to window
+- return current count
+
+Conceptually:
+
+  local current = redis.call("INCR", KEYS[1])
+  if current == 1 or redis.call("PTTL", KEYS[1]) < 0 then
+    redis.call("PEXPIRE", KEYS[1], ARGV[1])
+  end
+  return current
+
+6. Error behavior:
+- if client is nil, return clear configuration/infrastructure error
+- if limit <= 0, return clear configuration error
+- if window <= 0, return clear configuration error
+- if Redis/Lua fails, return wrapped infrastructure error
+- if current count > limit, return otp.ErrOTPRateLimited
+- do not log inside adapter
+- do not return remaining quota/retry-after yet
+
+7. Tests:
+Follow existing Redis integration test style and skip cleanly when Redis is unavailable.
+
+Add tests:
+- allows requests under limit
+- blocks after limit and errors.Is(err, otp.ErrOTPRateLimited)
+- sets TTL after first allowed call
+- isolates different tenant IDs
+- isolates different phones
+- invalid limit returns non-rate-limit error
+- invalid window returns non-rate-limit error
+- nil Redis client returns non-rate-limit error
+- repairs missing TTL:
+  - manually create key without TTL
+  - call AllowSend
+  - assert TTL is now positive
+- optional if still small:
+  - concurrent calls with limit N result in exactly N allowed and remaining calls rate-limited
+
+Important:
+- Do not change service behavior in this phase.
+- Do not wire this limiter in main.go yet.
+- Before modifying files, briefly state exact files you will create and why.
+- After implementation:
+  - run gofmt
+  - run go test -count=1 ./internal/repository -v
+  - run go test -count=1 ./...
+  - summarize changed files and test results.
+
+  ----------
+
+  
