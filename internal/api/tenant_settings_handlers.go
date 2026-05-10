@@ -49,4 +49,3 @@ func GetTenantSettingsByIDHandler(repo *repository.TenantSettingsRepository) gin
 		c.JSON(http.StatusOK, tenantSettings)
 	}
 }
-

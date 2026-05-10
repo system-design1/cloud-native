@@ -17,7 +17,7 @@ func TestGenerateOTPCodeHandler(t *testing.T) {
 
 	// Create a Gin router for test only
 	router := gin.New()
-	
+
 	// Register the /v1/otp/code route
 	v1 := router.Group("/v1")
 	{
@@ -67,4 +67,3 @@ func TestGenerateOTPCodeHandler(t *testing.T) {
 	}
 	assert.True(t, matched, "Code should contain only digits")
 }
-

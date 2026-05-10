@@ -1798,3 +1798,1018 @@ After implementation:
 - summarize changed files and test results.
 
 ----------
+OTP config/env wiring ❌
+resend cooldown / send rate protection ❌
+verification logging repository ❌
+business metrics/tracing ❌
+better migration command/Makefile support ❌
+real SMS provider abstraction/router ❌
+auth/token validation ❌
+OpenAPI/docs ❌
+
+
+----
+Before implementing OTP-related env/config wiring, analyze the current config loading system and current OTP/fake SMS hardcoded defaults.
+
+Do not modify files yet.
+
+Goal:
+Design a small, consistent implementation plan to move OTP and fake SMS settings into environment/config files.
+
+Current state:
+- otp.DefaultConfig() is used in cmd/server/main.go.
+- Fake SMS provider has default delay 20ms to 30ms.
+- Dev-only fake SMS OTP capture is controlled by env var OTP_FAKE_SMS_DEBUG_CODE_REDIS directly in main.go.
+- Some values are currently hardcoded/defaulted in code.
+- I want these settings to be configurable through env and documented in .env / env.example if those files exist.
+
+Please analyze:
+1. Current config package structure.
+2. Current env loading style.
+3. Current .env and env.example files, if present.
+4. How duration values are currently parsed.
+5. Where OTP config should be added.
+6. How to map env values into otp.Config.
+7. How to configure fake SMS delay range.
+8. How to configure fake SMS debug capture safely.
+9. Which values should remain defaults if env is missing.
+10. Validation rules for invalid env values.
+11. Exact files that should change.
+12. Tests that should be added.
+13. What should be deferred.
+
+Proposed env variables:
+- OTP_CODE_LENGTH
+- OTP_TTL
+- OTP_MAX_ATTEMPTS
+- OTP_TENANT_CACHE_TTL
+- OTP_PROVIDER_TIMEOUT
+- OTP_FAKE_SMS_MIN_DELAY
+- OTP_FAKE_SMS_MAX_DELAY
+- OTP_FAKE_SMS_DEBUG_CODE_REDIS
+- OTP_FAKE_SMS_DEBUG_CODE_TTL
+
+Important constraints:
+- Do not implement anything yet.
+- Do not modify files.
+- Keep the next implementation diff small.
+- Preserve current defaults when env vars are not set.
+- Do not break existing config tests.
+- Do not expose OTP codes in API responses or logs.
+- Do not enable debug capture by default.
+- Keep debug capture disabled unless explicitly enabled.
+- Prefer existing config parsing patterns over new abstractions.
+- Update env.example if it exists.
+- Update .env only if the project already tracks and uses it for local development.
+- Do not add new dependencies.
+
+Return:
+1. Recommended config design.
+2. Env variable names and default values.
+3. Exact files that should change.
+4. Validation/error behavior.
+5. Required tests.
+6. Deferred concerns.
+```
+--------------
+
+Implement OTP and fake SMS env/config wiring.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/config/config.go
+  - internal/config/config_test.go
+  - internal/sms/fake_provider.go
+  - internal/sms/fake_provider_test.go
+  - cmd/server/main.go
+  - env.example
+- Do not modify otp.Service business logic.
+- Do not modify repository code.
+- Do not modify API handlers/routes.
+- Do not modify migrations.
+- Do not add new dependencies.
+- Do not update .env.
+- Keep the diff small and easy to review.
+
+Goal:
+Move OTP-related runtime values from hardcoded/default-only usage into the existing config/env system while preserving current defaults.
+
+Config requirements:
+1. Add OTPConfig to internal/config:
+   - CodeLength int
+   - TTL time.Duration
+   - MaxAttempts int
+   - TenantCacheTTL time.Duration
+   - ProviderTimeout time.Duration
+   - FakeSMSMinDelay time.Duration
+   - FakeSMSMaxDelay time.Duration
+   - FakeSMSDebugCodeRedis bool
+   - FakeSMSDebugCodeTTL time.Duration
+
+2. Add OTP OTPConfig to root Config.
+
+3. Load env vars:
+   - OTP_CODE_LENGTH default 6
+   - OTP_TTL default 2m
+   - OTP_MAX_ATTEMPTS default 3
+   - OTP_TENANT_CACHE_TTL default 5m
+   - OTP_PROVIDER_TIMEOUT default 2s
+   - OTP_FAKE_SMS_MIN_DELAY default 20ms
+   - OTP_FAKE_SMS_MAX_DELAY default 30ms
+   - OTP_FAKE_SMS_DEBUG_CODE_REDIS default false
+   - OTP_FAKE_SMS_DEBUG_CODE_TTL default 60s
+
+4. Validation:
+   - OTP_CODE_LENGTH must be between 1 and 18
+   - OTP_TTL must be > 0
+   - OTP_MAX_ATTEMPTS must be > 0
+   - OTP_TENANT_CACHE_TTL must be > 0
+   - OTP_PROVIDER_TIMEOUT must be > 0
+   - OTP_FAKE_SMS_MIN_DELAY must be >= 0
+   - OTP_FAKE_SMS_MAX_DELAY must be >= 0 and >= min delay
+   - OTP_FAKE_SMS_DEBUG_CODE_TTL must be > 0
+
+5. Bool parsing:
+   - Keep existing style if there is one.
+   - Accept true and 1 as true.
+   - Missing/other values should be false unless existing config behavior says otherwise.
+
+Fake SMS requirements:
+- Keep sms.NewFakeProvider() unchanged with current default 20ms to 30ms behavior.
+- Add a simple constructor for configurable delay if needed, for example:
+  NewFakeProviderWithDelay(minDelay, maxDelay time.Duration)
+- Do not introduce an options framework.
+- Existing tests must keep passing.
+
+main.go requirements:
+- Use cfg.OTP to build otp.Config instead of raw otp.DefaultConfig().
+- Use configured fake SMS delay.
+- Keep debug capture disabled unless:
+  - cfg.OTP.FakeSMSDebugCodeRedis is true
+  - Gin mode is not release
+- Debug code capture TTL should be min(cfg.OTP.FakeSMSDebugCodeTTL, cfg.OTP.TTL).
+- Do not read OTP_FAKE_SMS_DEBUG_CODE_REDIS directly in main.go anymore.
+
+env.example:
+- Add all OTP env vars with defaults and short comments if the file style supports comments.
+
+Tests:
+- Add config tests for:
+  - defaults
+  - env overrides
+  - invalid duration
+  - invalid code length
+  - max attempts <= 0
+  - fake SMS max delay < min delay
+  - debug flag true and 1
+  - debug flag default false
+- Add/adjust SMS tests if configurable delay constructor is added.
+
+Before modifying files:
+- Briefly state exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/config -v
+- run go test -count=1 ./internal/sms -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+
+----------
+
+Analyze the next incremental step for OTP resend protection / active OTP prevention.
+
+Current state:
+- OTP state is stored in Redis via OTPStore.
+- Key format:
+  otp:{tenant_id}:{phone}
+- SendOTP currently always creates a new OTP state and sends SMS.
+- VerifyOTP deletes OTP state on successful verification.
+- OTP TTL already exists.
+- No resend protection or cooldown exists yet.
+- Manual testing showed the same phone can request unlimited OTPs rapidly.
+
+Goal:
+Design the smallest safe implementation to prevent OTP spam and repeated resend while an active OTP already exists.
+
+Important:
+- Do not implement yet.
+- Do not modify files yet.
+- Keep the next diff small.
+- Prefer reusing existing Redis OTP state.
+- Avoid introducing a full generic rate limiter.
+- Avoid introducing new infrastructure or dependencies.
+- Avoid adding background jobs.
+- Preserve current VerifyOTP behavior.
+
+Please analyze:
+1. Recommended resend protection strategy.
+2. Whether SendOTP should reject when an active OTP already exists.
+3. Whether cooldown should be based on Redis key existence or timestamps.
+4. Recommended API response behavior and HTTP status.
+5. Whether remaining TTL should be exposed to the client.
+6. Race conditions and Redis consistency concerns.
+7. Exact files that should change.
+8. Whether OTPStore interface changes are needed.
+9. Whether OTPStore.Get should be reused or a cheaper Exists API is better.
+10. Required tests.
+11. Edge cases:
+   - expired OTP
+   - malformed Redis state
+   - concurrent sends
+   - Redis failures
+12. Whether request logging should log blocked resend attempts.
+13. Deferred concerns:
+   - distributed rate limiting
+   - IP throttling
+   - tenant quotas
+   - resend-after durations
+   - resend token flows
+   - resend same-code behavior
+   - background cleanup
+   - provider billing protection
+
+Preferred direction:
+- Keep implementation small.
+- Reuse existing Redis OTP state.
+- Reject new sends while an active OTP exists.
+- Use 429 Too Many Requests at the HTTP layer.
+
+------
+
+Implement the first OTP resend protection using the existing Redis OTP state.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/otp/errors.go
+  - internal/otp/service.go
+  - internal/otp/service_test.go
+  - internal/api/otp_flow_handlers.go
+  - internal/api/otp_flow_handlers_test.go
+- Do not modify repository code.
+- Do not modify OTPStore interface.
+- Do not modify Redis store implementation.
+- Do not modify cmd/server/main.go.
+- Do not modify config.
+- Do not add new Redis keys.
+- Do not add generic rate limiter.
+- Do not add tenant quota system.
+- Do not add Retry-After header yet.
+- Do not log blocked resend attempts into otp_requests.
+- Keep the diff small and easy to review.
+
+Goal:
+Prevent repeated /otp/send requests for the same tenant_id + phone while an active, unexpired OTP already exists.
+
+Requirements:
+
+1. Add domain error:
+   ErrOTPAlreadyActive
+
+2. SendOTP flow:
+   - Validate request.
+   - Load tenant settings.
+   - Validate tenant.
+   - Check existing OTP state using OTPStore.Get(ctx, tenantID, phone).
+   - If OTPStore.Get returns ErrOTPNotFound:
+     continue normal send flow.
+   - If OTPStore.Get returns any other error:
+     abort and return wrapped error.
+   - If an existing OTP state is found and ExpiresAt is in the future:
+     return ErrOTPAlreadyActive.
+   - If an existing OTP state is expired:
+     best-effort Delete(ctx, tenantID, phone)
+     continue normal send flow.
+   - Do not create request log for blocked resend attempts.
+   - Do not generate a new OTP for blocked resend attempts.
+   - Do not call SMS provider for blocked resend attempts.
+
+3. Expired existing OTP behavior:
+   - If Delete fails, ignore the delete error and continue.
+   - This matches best-effort cleanup behavior used elsewhere.
+
+4. API mapping:
+   - Map ErrOTPAlreadyActive to HTTP 429 Too Many Requests.
+   - Use existing error response style.
+   - Do not add Retry-After yet.
+
+5. Tests in internal/otp:
+   Add/update service tests for:
+   - no existing OTP / ErrOTPNotFound: SendOTP proceeds normally
+   - existing active OTP: returns ErrOTPAlreadyActive
+   - existing active OTP: does not create request log
+   - existing active OTP: does not save new OTP state
+   - existing active OTP: does not call SMS provider
+   - existing expired OTP: best-effort delete and SendOTP proceeds
+   - existing expired OTP delete failure: SendOTP still proceeds
+   - OTPStore.Get returns non-not-found error: SendOTP aborts
+   - tenant validation still happens before active OTP check
+
+6. Tests in internal/api:
+   - Send handler maps ErrOTPAlreadyActive to 429.
+
+Important:
+- Before modifying files, briefly state exact files you will change and why.
+- After implementation:
+  - run gofmt
+  - run go test -count=1 ./internal/otp -v
+  - run go test -count=1 ./internal/api -v
+  - run go test -count=1 ./...
+  - summarize changed files and test results.
+
+
+---------
+send
+verify
+Redis state
+PostgreSQL request logging
+HTTP APIs
+fake SMS
+debug OTP retrieval
+resend protection
+expiration
+max attempts
+cleanup behavior
+config/env wiring
+handler tests
+service tests
+repository tests
+
+مرحله‌های مهم بعدی احتمالاً یکی از این‌ها هستند:
+
+
+verification logging (otp_verifications)
+- Verification logging repository + migration
+- Wire verification logger into VerifyOTP + main.go
+structured rate limiting (per phone/IP/tenant)
+tracing/metrics
+atomic resend protection (SET NX / Lua)
+real SMS provider abstraction
+OpenAPI / Swagger
+auth/token validation
+production hardening
+integration/e2e docker tests
+admin/reporting APIs
+
+-----------------
+
+Before implementing OTP verification logging, analyze the current VerifyOTP flow, existing OTP request logging repository, and database migration style.
+
+Do not modify files yet.
+
+Goal:
+Design a small implementation for recording OTP verification attempts/results.
+
+Current state:
+- SendOTP logs request/provider result in otp_requests.
+- VerifyOTP is implemented but does not log verification attempts.
+- OTPVerificationLogger interface already exists.
+- OTPVerificationLog model likely exists in internal/otp.
+- No otp_verifications table/repository exists yet.
+
+Please analyze:
+1. Current OTPVerificationLogger interface.
+2. Current OTPVerificationLog model fields.
+3. Current VerifyOTP flow and where logging should happen.
+4. Whether verification logging should be mandatory or best-effort.
+5. What database table/schema is needed.
+6. Whether failed business verifications should be logged.
+7. Whether invalid request validation failures should be logged.
+8. How to handle missing OTP / expired / invalid_code / max_attempts / success.
+9. Whether request_id should be stored when available.
+10. Whether tenant_id, phone, result, reason, attempt_count, metadata, created_at should be stored.
+11. Exact files that should change.
+12. Recommended repository tests.
+13. Recommended service tests.
+14. What should be deferred.
+
+Important constraints:
+- Do not implement anything yet.
+- Do not modify files.
+- Keep the next implementation diff small.
+- Do not modify HTTP handlers/routes unless absolutely necessary.
+- Do not add metrics/tracing yet.
+- Do not add async logging/outbox.
+- Do not add rate limiting yet.
+- Follow current repository and migration style.
+- Prefer database/sql and existing sql-migrate format.
+
+Return:
+1. Recommended logging design.
+2. Exact files that should change.
+3. Proposed migration/table schema.
+4. Repository implementation approach.
+5. VerifyOTP wiring approach.
+6. Failure policy.
+7. Tests to add.
+8. Deferred concerns.
+
+---------------
+we broke it to 2 separate phases:
+Verification logging repository + migration
+Wire verification logger into VerifyOTP + main.go
+-------------
+Implement OTP verification logging repository and migration only.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Add only:
+  - one sql-migrate migration for otp_verifications
+  - internal/repository/otp_verification_log_repo.go
+  - internal/repository/otp_verification_log_repo_test.go
+- Do not modify internal/otp/service.go yet.
+- Do not modify internal/otp/service_test.go yet.
+- Do not modify cmd/server/main.go yet.
+- Do not modify API handlers/routes.
+- Do not add metrics/tracing.
+- Do not add async logging/outbox.
+- Do not add rate limiting.
+- Keep the diff small and easy to review.
+
+Migration requirements:
+- First inspect existing migration files and follow the exact naming/style used in this project.
+- Use sql-migrate format with Up/Down if that is the existing style.
+- Create table otp_verifications if it does not exist.
+- Columns:
+  - id BIGSERIAL PRIMARY KEY
+  - request_id TEXT NOT NULL DEFAULT ''
+  - tenant_id BIGINT NOT NULL
+  - phone TEXT NOT NULL
+  - result TEXT NOT NULL
+  - reason TEXT NOT NULL DEFAULT ''
+  - attempt_count INTEGER NOT NULL DEFAULT 0
+  - correlation_id TEXT
+  - created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+- Indexes:
+  - request_id
+  - tenant_id, created_at DESC
+  - phone, created_at DESC
+  - result, created_at DESC
+- Do not add a foreign key to otp_requests yet.
+- Add Down migration that drops indexes/table consistently with project style.
+
+Repository requirements:
+- Create OTPVerificationLogRepository using database/sql.
+- Constructor:
+  func NewOTPVerificationLogRepository(db *sql.DB) *OTPVerificationLogRepository
+- Implement existing otp.OTPVerificationLogger interface:
+  func (r *OTPVerificationLogRepository) LogVerification(ctx context.Context, log otp.OTPVerificationLog) error
+- Use parameterized SQL.
+- If CreatedAt is zero, default to time.Now().UTC().
+- Store empty CorrelationID as SQL NULL if existing repository helpers support that pattern; otherwise keep it simple and consistent with existing code.
+- Wrap errors with clear context.
+
+Testing requirements:
+- Follow current repository integration test style.
+- Tests may use real PostgreSQL and skip cleanly if unavailable.
+- Do not add new dependencies.
+- Do not create schema in Go tests unless existing repository tests already do that.
+- If otp_verifications table is missing because migration is not applied, skip cleanly with a clear message.
+
+Add tests:
+1. LogVerification inserts a success row.
+2. LogVerification inserts a failed row with reason and attempt_count.
+3. Zero CreatedAt is defaulted and stored.
+4. Empty CorrelationID is stored as NULL if practical to assert.
+5. Optional only if small: non-empty CorrelationID is stored.
+
+Before modifying files:
+- Briefly state the exact files you will create and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/repository -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+---------
+
+Before wiring OTP verification logging into VerifyOTP, analyze the current VerifyOTP service flow, service tests, and server wiring.
+
+Do not modify files yet.
+
+Current state:
+- OTPVerificationLogger interface already exists.
+- OTPVerificationLog model already exists.
+- PostgreSQL OTPVerificationLogRepository and migration are implemented and committed.
+- VerifyOTP is implemented and tested.
+- cmd/server/main.go currently passes nil as verifyLogger to otp.NewService.
+- Verification logging should now be wired as best-effort.
+
+Goal:
+Design a small, safe implementation plan to:
+1. log verification outcomes from otp.Service.VerifyOTP
+2. construct OTPVerificationLogRepository in cmd/server/main.go
+3. pass it to otp.NewService
+
+Please analyze:
+1. Current VerifyOTP branches and all business outcomes.
+2. Where LogVerification should be called in each branch.
+3. Which outcomes should be logged:
+   - success
+   - not_found
+   - expired
+   - invalid_code
+   - max_attempts_exceeded
+4. Which outcomes should NOT be logged:
+   - invalid request
+   - infrastructure/store errors
+   - delete failure after success
+   - increment infrastructure errors
+5. What result/reason values should be used.
+6. How attempt_count should be populated for each outcome.
+7. How request_id should be populated when state is available.
+8. Whether logging should be best-effort and ignored on failure.
+9. How to ensure logging does not change VerifyOTP responses.
+10. Exact files that should change.
+11. Required service tests.
+12. Whether cmd/server/main.go should be included in the same slice.
+13. Manual verification steps after implementation.
+
+Important constraints:
+- Do not implement anything yet.
+- Do not modify files.
+- Keep the next diff small.
+- Modify only:
+  - internal/otp/service.go
+  - internal/otp/service_test.go
+  - cmd/server/main.go
+  unless a compile-time mismatch requires otherwise.
+- Do not modify repository code.
+- Do not modify migrations.
+- Do not modify API handlers/routes.
+- Do not add metrics/tracing.
+- Do not add async logging/outbox.
+- Verification logging must be best-effort.
+- Logging failure must not change VerifyOTP response.
+
+Return:
+1. Recommended wiring approach.
+2. Exact VerifyOTP logging points.
+3. Result/reason mapping table.
+4. Failure policy.
+5. Exact files that should change.
+6. Tests to add/update.
+7. Manual validation steps.
+
+---------
+I have implemented these sections:
+SendOTP
+VerifyOTP
+Redis OTP state
+request logging
+verification logging
+resend protection
+fake SMS provider
+debug OTP capture
+env-driven config
+HTTP handlers/routes
+end-to-end manual testability
+repository integration tests
+service-level tests
+handler-level tests
+-------------------
+next steps:
+structured rate limiting (per phone, per tenant, per IP)
+tracing/metrics
+atomic Redis flow
+------------
+We have completed the core OTP flow:
+- SendOTP
+- VerifyOTP
+- Redis OTP state
+- resend protection
+- request logging
+- verification logging
+- HTTP handlers
+- env-driven config
+- fake SMS provider
+- debug OTP capture
+
+Now I want to implement the first structured rate limiting layer for OTP sends.
+
+Please analyze and design the best small incremental implementation for this codebase.
+
+Goals:
+- prevent OTP abuse/spam
+- keep implementation small and reviewable
+- avoid large architecture changes
+- reuse Redis when possible
+- preserve current OTP resend protection behavior
+
+I want you to analyze:
+1. recommended rate limiting strategy
+2. per-phone vs per-tenant vs per-IP ordering
+3. Redis key design
+4. fixed window vs sliding window vs token bucket
+5. where the logic should live
+6. whether this should be inside otp.Service or middleware
+7. exact files that should change
+8. config/env additions needed
+9. required tests
+10. HTTP/API behavior and status codes
+11. race conditions and edge cases
+12. interaction with existing resend protection
+13. whether resend protection and rate limiting should stay separate or be merged later
+14. what should explicitly be deferred
+
+Constraints:
+- keep architecture clean
+- keep diff small
+- do not redesign the whole app
+- do not add external rate limiting libraries yet
+- prefer Redis-based implementation
+- keep current resend protection behavior unchanged for now
+- preserve current test style
+- avoid generic middleware abstractions unless clearly justified
+
+Please provide:
+- recommended design
+- exact implementation plan
+- exact files to change
+- test plan
+- deferred concerns
+- rollout order
+- risks/tradeoffs
+----------------
+
+Phase 1: Domain/service/API mapping با fake limiter
+Phase 2: Redis limiter repository
+Phase 3: config/env + main.go wiring
+---------
+Implement Phase 1 of OTP send rate limiting: domain/service/API integration only.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/otp/errors.go
+  - internal/otp/interfaces.go
+  - internal/otp/service.go
+  - internal/otp/service_test.go
+  - internal/api/otp_flow_handlers.go
+  - internal/api/otp_flow_handlers_test.go
+- Do not modify repository code.
+- Do not add Redis rate limiter implementation yet.
+- Do not modify config/env yet.
+- Do not modify cmd/server/main.go yet.
+- Do not modify env.example yet.
+- Do not add metrics/tracing.
+- Do not add generic middleware.
+- Keep the diff small and easy to review.
+
+Goal:
+Prepare SendOTP to support an optional send rate limiter dependency, while preserving existing behavior when no limiter is configured.
+
+Requirements:
+
+1. Add domain error:
+   ErrOTPRateLimited
+
+2. Add interface in internal/otp/interfaces.go:
+   type SendRateLimiter interface {
+       AllowSend(ctx context.Context, tenantID int64, phone string) error
+   }
+
+3. Add optional limiter dependency to otp.Service.
+   Keep existing call sites compiling.
+   Prefer a small setter method such as:
+   func (s *Service) SetSendRateLimiter(limiter SendRateLimiter)
+   rather than changing the NewService constructor signature.
+
+4. SendOTP flow:
+   - request validation
+   - tenant lookup
+   - tenant validation
+   - existing active OTP resend protection
+   - then rate limiter check
+   - then existing request generation/logging/save/SMS flow
+
+5. Behavior:
+   - If no limiter is configured, SendOTP behavior remains unchanged.
+   - If active OTP already exists, return ErrOTPAlreadyActive and do not call limiter.
+   - If limiter returns ErrOTPRateLimited, abort before request log/save/SMS.
+   - If limiter returns any other error, abort before request log/save/SMS and wrap the error.
+   - Tenant validation must happen before limiter.
+   - Blocked rate-limited sends should not be logged in otp_requests yet.
+
+6. API mapping:
+   - Map ErrOTPRateLimited to HTTP 429 Too Many Requests.
+   - Keep existing ErrOTPAlreadyActive mapping unchanged.
+   - Do not add Retry-After yet.
+
+7. Tests:
+   Update service tests with fake limiter:
+   - limiter nil: existing SendOTP success still works.
+   - limiter allows send: SendOTP proceeds.
+   - limiter returns ErrOTPRateLimited: SendOTP returns ErrOTPRateLimited.
+   - limiter blocks: no request log, no store save, no SMS.
+   - limiter returns infrastructure error: SendOTP returns error.
+   - active OTP happens before limiter: limiter is not called.
+   - tenant disabled happens before limiter: limiter is not called.
+
+   Update API tests:
+   - ErrOTPRateLimited maps to 429.
+
+Before modifying files:
+- Briefly state exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/otp -v
+- run go test -count=1 ./internal/api -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+-----------------
+Analyze Phase 2 of OTP send rate limiting: Redis-backed implementation.
+
+Current state:
+- Phase 1 is done and committed.
+- internal/otp has SendRateLimiter interface:
+  AllowSend(ctx context.Context, tenantID int64, phone string) error
+- otp.Service.SendOTP calls the limiter after active OTP resend protection and before request logging/save/SMS.
+- ErrOTPRateLimited exists and maps to HTTP 429.
+- No Redis limiter implementation exists yet.
+- No config/main wiring exists yet for the limiter.
+
+Goal:
+Design a small Redis-backed fixed-window implementation of SendRateLimiter.
+
+Do not modify files yet.
+
+Please analyze:
+1. Recommended Redis fixed-window strategy.
+2. Redis key format.
+3. Whether to use INCR+EXPIRE pipeline or Lua for atomicity.
+4. How to avoid keys without TTL.
+5. What constructor/config fields the repository should accept.
+6. Whether this implementation should live in internal/repository.
+7. How to map limit exceeded to otp.ErrOTPRateLimited.
+8. How to handle Redis infrastructure errors.
+9. Whether remaining quota or retry-after should be returned now or deferred.
+10. Required tests.
+11. Edge cases:
+    - limit <= 0
+    - window <= 0
+    - Redis unavailable
+    - TTL missing
+    - different tenant/phone isolation
+    - concurrent calls
+12. What should be deferred to Phase 3 config/main wiring.
+
+Constraints:
+- Do not implement yet.
+- Do not modify otp.Service.
+- Do not modify config/env yet.
+- Do not modify cmd/server/main.go yet.
+- Do not modify API handlers.
+- Keep diff small.
+- Use existing Redis client style.
+- Follow existing repository test style.
+- Do not add new dependencies.
+
+Return:
+1. Recommended implementation design.
+2. Exact files to change.
+3. Redis command/script design.
+4. Error behavior.
+5. Tests to add.
+6. Deferred concerns.
+
+---------
+
+Implement Phase 2 of OTP send rate limiting: Redis-backed fixed-window limiter.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Add only:
+  - internal/repository/otp_send_rate_limiter_redis.go
+  - internal/repository/otp_send_rate_limiter_redis_test.go
+- Do not modify internal/otp.
+- Do not modify otp.Service.
+- Do not modify API handlers/routes.
+- Do not modify config/env.
+- Do not modify cmd/server/main.go.
+- Do not modify env.example.
+- Do not add new dependencies.
+- Keep the diff small and easy to review.
+
+Goal:
+Add a Redis-backed implementation of otp.SendRateLimiter.
+
+Requirements:
+
+1. Add type:
+   RedisOTPSendRateLimiter
+
+2. Add constructor:
+   func NewRedisOTPSendRateLimiter(client *redis.Client, limit int, window time.Duration) *RedisOTPSendRateLimiter
+
+3. Implement:
+   func (l *RedisOTPSendRateLimiter) AllowSend(ctx context.Context, tenantID int64, phone string) error
+
+4. Redis key format:
+   otp:rate:send:{tenant_id}:{phone}
+
+5. Use Redis Lua script, not plain INCR + EXPIRE pipeline.
+
+Use guarded Lua behavior:
+- INCR key
+- if current count == 1 OR key has no TTL, set PEXPIRE to window
+- return current count
+
+Conceptually:
+
+  local current = redis.call("INCR", KEYS[1])
+  if current == 1 or redis.call("PTTL", KEYS[1]) < 0 then
+    redis.call("PEXPIRE", KEYS[1], ARGV[1])
+  end
+  return current
+
+6. Error behavior:
+- if client is nil, return clear configuration/infrastructure error
+- if limit <= 0, return clear configuration error
+- if window <= 0, return clear configuration error
+- if Redis/Lua fails, return wrapped infrastructure error
+- if current count > limit, return otp.ErrOTPRateLimited
+- do not log inside adapter
+- do not return remaining quota/retry-after yet
+
+7. Tests:
+Follow existing Redis integration test style and skip cleanly when Redis is unavailable.
+
+Add tests:
+- allows requests under limit
+- blocks after limit and errors.Is(err, otp.ErrOTPRateLimited)
+- sets TTL after first allowed call
+- isolates different tenant IDs
+- isolates different phones
+- invalid limit returns non-rate-limit error
+- invalid window returns non-rate-limit error
+- nil Redis client returns non-rate-limit error
+- repairs missing TTL:
+  - manually create key without TTL
+  - call AllowSend
+  - assert TTL is now positive
+- optional if still small:
+  - concurrent calls with limit N result in exactly N allowed and remaining calls rate-limited
+
+Important:
+- Do not change service behavior in this phase.
+- Do not wire this limiter in main.go yet.
+- Before modifying files, briefly state exact files you will create and why.
+- After implementation:
+  - run gofmt
+  - run go test -count=1 ./internal/repository -v
+  - run go test -count=1 ./...
+  - summarize changed files and test results.
+
+  ----------
+phase 3: config/env + main.go wiring for rate limiter
+
+Analyze Phase 3 of OTP send rate limiting: config/env wiring and main.go integration.
+
+Current state:
+- Phase 1 is done: otp.SendRateLimiter interface exists, SendOTP calls it, ErrOTPRateLimited maps to HTTP 429.
+- Phase 2 is done: repository.NewRedisOTPSendRateLimiter(client, limit, window) exists and is tested.
+- The limiter is not wired into runtime yet.
+- OTP config/env wiring already exists for OTP and fake SMS settings.
+
+Goal:
+Design a small implementation to enable the Redis OTP send rate limiter via env/config and wire it in cmd/server/main.go.
+
+Do not modify files yet.
+
+Please analyze:
+1. Which config fields should be added.
+2. Env variable names and defaults.
+3. Whether the limiter should be disabled by default.
+4. Validation rules for limit/window.
+5. How to wire limiter in main.go.
+6. Whether to call otpService.SetSendRateLimiter only when enabled.
+7. Whether env.example should be updated.
+8. Tests to add/update in config package.
+9. Manual validation steps after implementation.
+10. Risks and deferred concerns.
+
+Proposed env variables:
+- OTP_SEND_RATE_LIMIT_ENABLED=false
+- OTP_SEND_RATE_LIMIT_MAX=5
+- OTP_SEND_RATE_LIMIT_WINDOW=10m
+
+Constraints:
+- Do not implement yet.
+- Keep the diff small.
+- Modify only:
+  - internal/config/config.go
+  - internal/config/config_test.go
+  - cmd/server/main.go
+  - env.example
+- Do not modify otp.Service.
+- Do not modify repository implementation.
+- Do not modify API handlers/routes.
+- Do not add metrics/tracing yet.
+- Preserve current behavior when rate limiting is disabled.
+- Do not enable rate limiting by default.
+- Follow existing config parsing style.
+
+Return:
+1. Recommended config design.
+2. Exact files to change.
+3. Default values.
+4. Validation behavior.
+5. main.go wiring plan.
+6. Tests to add.
+7. Manual runtime test plan.
+--------------
+
+Implement Phase 3 of OTP send rate limiting: config/env wiring and main.go integration.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/config/config.go
+  - internal/config/config_test.go
+  - cmd/server/main.go
+  - env.example
+- Do not modify otp.Service.
+- Do not modify repository implementation.
+- Do not modify API handlers/routes.
+- Do not add metrics/tracing.
+- Do not add Retry-After.
+- Do not add per-IP or tenant-wide limits.
+- Keep the diff small and easy to review.
+
+Goal:
+Enable Redis OTP send rate limiter through env/config, while preserving current behavior by default.
+
+Config requirements:
+1. Add these fields to config.OTPConfig:
+   - SendRateLimitEnabled bool
+   - SendRateLimitMax int
+   - SendRateLimitWindow time.Duration
+
+2. Add env variables:
+   - OTP_SEND_RATE_LIMIT_ENABLED default false
+   - OTP_SEND_RATE_LIMIT_MAX default 5
+   - OTP_SEND_RATE_LIMIT_WINDOW default 10m
+
+3. Parsing:
+   - bool: follow existing project style; true and 1 mean true, otherwise false
+   - max: parse int
+   - window: parse time.Duration
+
+4. Validation:
+   - OTP_SEND_RATE_LIMIT_MAX must be > 0
+   - OTP_SEND_RATE_LIMIT_WINDOW must be > 0
+   - Validate these even when OTP_SEND_RATE_LIMIT_ENABLED=false, to catch bad config early.
+
+main.go requirements:
+1. After otpService is constructed, if cfg.OTP.SendRateLimitEnabled is true:
+   - create repository.NewRedisOTPSendRateLimiter(
+       rdb,
+       cfg.OTP.SendRateLimitMax,
+       cfg.OTP.SendRateLimitWindow,
+     )
+   - call otpService.SetSendRateLimiter(limiter)
+
+2. If disabled, do not set limiter and preserve existing behavior.
+
+3. No lifecycle changes.
+
+env.example:
+- Add the three env vars in the OTP config section:
+  - OTP_SEND_RATE_LIMIT_ENABLED=false
+  - OTP_SEND_RATE_LIMIT_MAX=5
+  - OTP_SEND_RATE_LIMIT_WINDOW=10m
+- Follow existing env.example formatting/comment style.
+
+Tests:
+Update config tests:
+- defaults include enabled=false, max=5, window=10m
+- env overrides parse enabled=true, max, window
+- enabled accepts true and 1
+- max=0 returns error
+- max non-int returns error
+- window=0s returns error
+- invalid window returns error
+
+No main.go tests needed unless existing startup wiring tests already exist.
+
+Before modifying files:
+- Briefly state exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/config -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+------------
+
+

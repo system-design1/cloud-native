@@ -248,6 +248,231 @@ func TestLoadDatabaseConfigPoolFromDotenvFile(t *testing.T) {
 	}
 }
 
+func TestLoadOTPConfigDefaults(t *testing.T) {
+	clearOTPEnv(t)
+
+	cfg := &Config{}
+	err := loadOTPConfig(cfg)
+
+	if err != nil {
+		t.Fatalf("Failed to load OTP config defaults: %v", err)
+	}
+	if cfg.OTP.CodeLength != 6 {
+		t.Errorf("Expected OTP_CODE_LENGTH default to be 6, got %d", cfg.OTP.CodeLength)
+	}
+	if cfg.OTP.TTL != 2*time.Minute {
+		t.Errorf("Expected OTP_TTL default to be 2m, got %v", cfg.OTP.TTL)
+	}
+	if cfg.OTP.MaxAttempts != 3 {
+		t.Errorf("Expected OTP_MAX_ATTEMPTS default to be 3, got %d", cfg.OTP.MaxAttempts)
+	}
+	if cfg.OTP.TenantCacheTTL != 5*time.Minute {
+		t.Errorf("Expected OTP_TENANT_CACHE_TTL default to be 5m, got %v", cfg.OTP.TenantCacheTTL)
+	}
+	if cfg.OTP.ProviderTimeout != 2*time.Second {
+		t.Errorf("Expected OTP_PROVIDER_TIMEOUT default to be 2s, got %v", cfg.OTP.ProviderTimeout)
+	}
+	if cfg.OTP.FakeSMSMinDelay != 20*time.Millisecond {
+		t.Errorf("Expected OTP_FAKE_SMS_MIN_DELAY default to be 20ms, got %v", cfg.OTP.FakeSMSMinDelay)
+	}
+	if cfg.OTP.FakeSMSMaxDelay != 30*time.Millisecond {
+		t.Errorf("Expected OTP_FAKE_SMS_MAX_DELAY default to be 30ms, got %v", cfg.OTP.FakeSMSMaxDelay)
+	}
+	if cfg.OTP.FakeSMSDebugCodeRedis {
+		t.Error("Expected OTP_FAKE_SMS_DEBUG_CODE_REDIS default to be false")
+	}
+	if cfg.OTP.FakeSMSDebugCodeTTL != time.Minute {
+		t.Errorf("Expected OTP_FAKE_SMS_DEBUG_CODE_TTL default to be 60s, got %v", cfg.OTP.FakeSMSDebugCodeTTL)
+	}
+	if cfg.OTP.SendRateLimitEnabled {
+		t.Error("Expected OTP_SEND_RATE_LIMIT_ENABLED default to be false")
+	}
+	if cfg.OTP.SendRateLimitMax != 5 {
+		t.Errorf("Expected OTP_SEND_RATE_LIMIT_MAX default to be 5, got %d", cfg.OTP.SendRateLimitMax)
+	}
+	if cfg.OTP.SendRateLimitWindow != 10*time.Minute {
+		t.Errorf("Expected OTP_SEND_RATE_LIMIT_WINDOW default to be 10m, got %v", cfg.OTP.SendRateLimitWindow)
+	}
+}
+
+func TestLoadOTPConfigFromEnv(t *testing.T) {
+	clearOTPEnv(t)
+	t.Setenv("OTP_CODE_LENGTH", "8")
+	t.Setenv("OTP_TTL", "3m")
+	t.Setenv("OTP_MAX_ATTEMPTS", "5")
+	t.Setenv("OTP_TENANT_CACHE_TTL", "7m")
+	t.Setenv("OTP_PROVIDER_TIMEOUT", "1500ms")
+	t.Setenv("OTP_FAKE_SMS_MIN_DELAY", "5ms")
+	t.Setenv("OTP_FAKE_SMS_MAX_DELAY", "10ms")
+	t.Setenv("OTP_FAKE_SMS_DEBUG_CODE_REDIS", "true")
+	t.Setenv("OTP_FAKE_SMS_DEBUG_CODE_TTL", "45s")
+	t.Setenv("OTP_SEND_RATE_LIMIT_ENABLED", "true")
+	t.Setenv("OTP_SEND_RATE_LIMIT_MAX", "9")
+	t.Setenv("OTP_SEND_RATE_LIMIT_WINDOW", "15m")
+
+	cfg := &Config{}
+	err := loadOTPConfig(cfg)
+
+	if err != nil {
+		t.Fatalf("Failed to load OTP config from env: %v", err)
+	}
+	if cfg.OTP.CodeLength != 8 {
+		t.Errorf("Expected CodeLength=8, got %d", cfg.OTP.CodeLength)
+	}
+	if cfg.OTP.TTL != 3*time.Minute {
+		t.Errorf("Expected TTL=3m, got %v", cfg.OTP.TTL)
+	}
+	if cfg.OTP.MaxAttempts != 5 {
+		t.Errorf("Expected MaxAttempts=5, got %d", cfg.OTP.MaxAttempts)
+	}
+	if cfg.OTP.TenantCacheTTL != 7*time.Minute {
+		t.Errorf("Expected TenantCacheTTL=7m, got %v", cfg.OTP.TenantCacheTTL)
+	}
+	if cfg.OTP.ProviderTimeout != 1500*time.Millisecond {
+		t.Errorf("Expected ProviderTimeout=1500ms, got %v", cfg.OTP.ProviderTimeout)
+	}
+	if cfg.OTP.FakeSMSMinDelay != 5*time.Millisecond {
+		t.Errorf("Expected FakeSMSMinDelay=5ms, got %v", cfg.OTP.FakeSMSMinDelay)
+	}
+	if cfg.OTP.FakeSMSMaxDelay != 10*time.Millisecond {
+		t.Errorf("Expected FakeSMSMaxDelay=10ms, got %v", cfg.OTP.FakeSMSMaxDelay)
+	}
+	if !cfg.OTP.FakeSMSDebugCodeRedis {
+		t.Error("Expected FakeSMSDebugCodeRedis=true")
+	}
+	if cfg.OTP.FakeSMSDebugCodeTTL != 45*time.Second {
+		t.Errorf("Expected FakeSMSDebugCodeTTL=45s, got %v", cfg.OTP.FakeSMSDebugCodeTTL)
+	}
+	if !cfg.OTP.SendRateLimitEnabled {
+		t.Error("Expected SendRateLimitEnabled=true")
+	}
+	if cfg.OTP.SendRateLimitMax != 9 {
+		t.Errorf("Expected SendRateLimitMax=9, got %d", cfg.OTP.SendRateLimitMax)
+	}
+	if cfg.OTP.SendRateLimitWindow != 15*time.Minute {
+		t.Errorf("Expected SendRateLimitWindow=15m, got %v", cfg.OTP.SendRateLimitWindow)
+	}
+}
+
+func TestLoadOTPConfigValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{
+			name: "invalid duration",
+			env:  map[string]string{"OTP_TTL": "nope"},
+		},
+		{
+			name: "invalid code length",
+			env:  map[string]string{"OTP_CODE_LENGTH": "19"},
+		},
+		{
+			name: "max attempts zero",
+			env:  map[string]string{"OTP_MAX_ATTEMPTS": "0"},
+		},
+		{
+			name: "fake sms max delay less than min",
+			env: map[string]string{
+				"OTP_FAKE_SMS_MIN_DELAY": "30ms",
+				"OTP_FAKE_SMS_MAX_DELAY": "20ms",
+			},
+		},
+		{
+			name: "debug ttl zero",
+			env:  map[string]string{"OTP_FAKE_SMS_DEBUG_CODE_TTL": "0s"},
+		},
+		{
+			name: "send rate limit max zero",
+			env:  map[string]string{"OTP_SEND_RATE_LIMIT_MAX": "0"},
+		},
+		{
+			name: "send rate limit max non-int",
+			env:  map[string]string{"OTP_SEND_RATE_LIMIT_MAX": "many"},
+		},
+		{
+			name: "send rate limit window zero",
+			env:  map[string]string{"OTP_SEND_RATE_LIMIT_WINDOW": "0s"},
+		},
+		{
+			name: "send rate limit window invalid",
+			env:  map[string]string{"OTP_SEND_RATE_LIMIT_WINDOW": "soon"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearOTPEnv(t)
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+
+			err := loadOTPConfig(&Config{})
+			if err == nil {
+				t.Error("Expected error but got none")
+			}
+		})
+	}
+}
+
+func TestLoadOTPConfigDebugFlagTrueValues(t *testing.T) {
+	for _, value := range []string{"true", "1"} {
+		t.Run(value, func(t *testing.T) {
+			clearOTPEnv(t)
+			t.Setenv("OTP_FAKE_SMS_DEBUG_CODE_REDIS", value)
+
+			cfg := &Config{}
+			err := loadOTPConfig(cfg)
+
+			if err != nil {
+				t.Fatalf("Failed to load OTP config: %v", err)
+			}
+			if !cfg.OTP.FakeSMSDebugCodeRedis {
+				t.Errorf("Expected debug flag to be true for %q", value)
+			}
+		})
+	}
+}
+
+func TestLoadOTPConfigSendRateLimitEnabledTrueValues(t *testing.T) {
+	for _, value := range []string{"true", "1"} {
+		t.Run(value, func(t *testing.T) {
+			clearOTPEnv(t)
+			t.Setenv("OTP_SEND_RATE_LIMIT_ENABLED", value)
+
+			cfg := &Config{}
+			err := loadOTPConfig(cfg)
+
+			if err != nil {
+				t.Fatalf("Failed to load OTP config: %v", err)
+			}
+			if !cfg.OTP.SendRateLimitEnabled {
+				t.Errorf("Expected send rate limit flag to be true for %q", value)
+			}
+		})
+	}
+}
+
+func clearOTPEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"OTP_CODE_LENGTH",
+		"OTP_TTL",
+		"OTP_MAX_ATTEMPTS",
+		"OTP_TENANT_CACHE_TTL",
+		"OTP_PROVIDER_TIMEOUT",
+		"OTP_FAKE_SMS_MIN_DELAY",
+		"OTP_FAKE_SMS_MAX_DELAY",
+		"OTP_FAKE_SMS_DEBUG_CODE_REDIS",
+		"OTP_FAKE_SMS_DEBUG_CODE_TTL",
+		"OTP_SEND_RATE_LIMIT_ENABLED",
+		"OTP_SEND_RATE_LIMIT_MAX",
+		"OTP_SEND_RATE_LIMIT_WINDOW",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
 func TestLoadRoutePolicyConfig(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -323,7 +548,7 @@ func TestLoadRoutePolicyConfig(t *testing.T) {
 			name: "invalid ratio value",
 			envVars: map[string]string{
 				"OTEL_ROUTE_POLICY_ENABLED": "true",
-				"OTEL_ROUTE_RATIO":         "/health=invalid",
+				"OTEL_ROUTE_RATIO":          "/health=invalid",
 			},
 			expectError: true,
 		},
@@ -331,7 +556,7 @@ func TestLoadRoutePolicyConfig(t *testing.T) {
 			name: "ratio out of range",
 			envVars: map[string]string{
 				"OTEL_ROUTE_POLICY_ENABLED": "true",
-				"OTEL_ROUTE_RATIO":         "/health=1.5",
+				"OTEL_ROUTE_RATIO":          "/health=1.5",
 			},
 			expectError: true,
 		},
@@ -352,10 +577,10 @@ func TestLoadRoutePolicyConfig(t *testing.T) {
 				"OTEL_ROUTE_DROP":           " /metrics ",
 			},
 			expectedPolicy: RoutePolicyConfig{
-				Enabled:      true,
-				AlwaysRoutes: []string{"/delayed-hello", "/test-error"},
-				DropRoutes:   []string{"/metrics"},
-				RatioRoutes:  make(map[string]float64),
+				Enabled:       true,
+				AlwaysRoutes:  []string{"/delayed-hello", "/test-error"},
+				DropRoutes:    []string{"/metrics"},
+				RatioRoutes:   make(map[string]float64),
 				DefaultPolicy: "always",
 				DefaultRatio:  1.0,
 			},

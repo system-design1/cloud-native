@@ -15,6 +15,7 @@ type Service struct {
 	tenantSettings TenantSettingsProvider
 	store          OTPStore
 	smsProvider    SMSProvider
+	sendLimiter    SendRateLimiter
 	requestLogger  OTPRequestLogger
 	verifyLogger   OTPVerificationLogger
 	config         Config
@@ -41,6 +42,11 @@ func NewService(
 	}
 }
 
+// SetSendRateLimiter configures an optional limiter for OTP send requests.
+func (s *Service) SetSendRateLimiter(limiter SendRateLimiter) {
+	s.sendLimiter = limiter
+}
+
 // SendOTP will orchestrate tenant lookup, OTP storage, provider send, and logging.
 func (s *Service) SendOTP(ctx context.Context, req SendRequest) (*SendResponse, error) {
 	if err := validateSendRequest(req); err != nil {
@@ -52,6 +58,14 @@ func (s *Service) SendOTP(ctx context.Context, req SendRequest) (*SendResponse, 
 		return nil, err
 	}
 	if err := validateTenant(tenant, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+
+	if err := s.preventActiveResend(ctx, req.TenantID, req.Phone, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+
+	if err := s.allowSend(ctx, req.TenantID, req.Phone); err != nil {
 		return nil, err
 	}
 
@@ -149,6 +163,7 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 	state, err := s.store.Get(ctx, req.TenantID, req.Phone)
 	if err != nil {
 		if errors.Is(err, ErrOTPNotFound) {
+			s.logVerification(ctx, verificationLog(req, "", VerificationResultFailed, ReasonNotFound, 0))
 			return failedVerifyResponse("", ReasonNotFound), nil
 		}
 		return nil, fmt.Errorf("get otp state: %w", err)
@@ -157,6 +172,7 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 	now := time.Now().UTC()
 	if !now.Before(state.ExpiresAt) {
 		_ = s.store.Delete(ctx, req.TenantID, req.Phone)
+		s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonExpired, state.AttemptCount))
 		return failedVerifyResponse(state.RequestID, ReasonExpired), nil
 	}
 
@@ -166,6 +182,7 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 	}
 	if state.AttemptCount >= maxAttempts {
 		_ = s.store.Delete(ctx, req.TenantID, req.Phone)
+		s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonMaxAttemptsExceeded, state.AttemptCount))
 		return failedVerifyResponse(state.RequestID, ReasonMaxAttemptsExceeded), nil
 	}
 
@@ -173,14 +190,17 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 		attempts, err := s.store.IncrementAttempts(ctx, req.TenantID, req.Phone)
 		if err != nil {
 			if errors.Is(err, ErrOTPNotFound) {
+				s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonNotFound, 0))
 				return failedVerifyResponse("", ReasonNotFound), nil
 			}
 			return nil, fmt.Errorf("increment otp attempts: %w", err)
 		}
 		if attempts >= maxAttempts {
 			_ = s.store.Delete(ctx, req.TenantID, req.Phone)
+			s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonMaxAttemptsExceeded, attempts))
 			return failedVerifyResponse(state.RequestID, ReasonMaxAttemptsExceeded), nil
 		}
+		s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultFailed, ReasonInvalidCode, attempts))
 		return failedVerifyResponse(state.RequestID, ReasonInvalidCode), nil
 	}
 
@@ -188,10 +208,63 @@ func (s *Service) VerifyOTP(ctx context.Context, req VerifyRequest) (*VerifyResp
 		return nil, fmt.Errorf("delete verified otp state: %w", err)
 	}
 
+	s.logVerification(ctx, verificationLog(req, state.RequestID, VerificationResultSuccess, ReasonVerified, state.AttemptCount))
 	return &VerifyResponse{
 		Verified:  true,
 		RequestID: state.RequestID,
 	}, nil
+}
+
+func (s *Service) preventActiveResend(ctx context.Context, tenantID int64, phone string, now time.Time) error {
+	state, err := s.store.Get(ctx, tenantID, phone)
+	if err != nil {
+		if errors.Is(err, ErrOTPNotFound) {
+			return nil
+		}
+		return fmt.Errorf("get existing otp state: %w", err)
+	}
+	if state == nil {
+		return nil
+	}
+	if now.Before(state.ExpiresAt) {
+		return ErrOTPAlreadyActive
+	}
+
+	_ = s.store.Delete(ctx, tenantID, phone)
+	return nil
+}
+
+func (s *Service) allowSend(ctx context.Context, tenantID int64, phone string) error {
+	if s.sendLimiter == nil {
+		return nil
+	}
+	if err := s.sendLimiter.AllowSend(ctx, tenantID, phone); err != nil {
+		if errors.Is(err, ErrOTPRateLimited) {
+			return ErrOTPRateLimited
+		}
+		return fmt.Errorf("check otp send rate limit: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) logVerification(ctx context.Context, log OTPVerificationLog) {
+	if s.verifyLogger == nil {
+		return
+	}
+	_ = s.verifyLogger.LogVerification(ctx, log)
+}
+
+func verificationLog(req VerifyRequest, requestID string, result string, reason string, attemptCount int) OTPVerificationLog {
+	return OTPVerificationLog{
+		RequestID:     requestID,
+		TenantID:      req.TenantID,
+		Phone:         req.Phone,
+		Result:        result,
+		Reason:        reason,
+		AttemptCount:  attemptCount,
+		CorrelationID: "",
+		CreatedAt:     time.Now().UTC(),
+	}
 }
 
 func (s *Service) updateProviderResult(ctx context.Context, log OTPProviderResultLog) error {

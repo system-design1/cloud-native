@@ -26,4 +26,3 @@ func GenerateOTPCodeHandler(c *gin.Context) {
 		"code": code,
 	})
 }
-

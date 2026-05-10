@@ -137,6 +137,13 @@ func TestNewFakeProviderDefaultLatencyRange(t *testing.T) {
 	assert.Equal(t, 30*time.Millisecond, provider.maxDelay)
 }
 
+func TestNewFakeProviderWithDelay(t *testing.T) {
+	provider := NewFakeProviderWithDelay(5*time.Millisecond, 10*time.Millisecond)
+
+	assert.Equal(t, 5*time.Millisecond, provider.minDelay)
+	assert.Equal(t, 10*time.Millisecond, provider.maxDelay)
+}
+
 func TestFakeProviderDebugCodeCaptureStoresCodeInRedis(t *testing.T) {
 	client := setupTestRedis(t)
 	defer client.Close()

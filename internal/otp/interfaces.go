@@ -23,6 +23,11 @@ type SMSProvider interface {
 	SendOTP(ctx context.Context, req SMSRequest) (*SMSResult, error)
 }
 
+// SendRateLimiter checks whether an OTP send request is allowed.
+type SendRateLimiter interface {
+	AllowSend(ctx context.Context, tenantID int64, phone string) error
+}
+
 // OTPRequestLogger persists send request and provider result logs.
 type OTPRequestLogger interface {
 	CreateRequest(ctx context.Context, log OTPRequestLog) error

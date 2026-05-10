@@ -17,11 +17,28 @@ type Config struct {
 	JWT      JWTConfig
 	App      AppConfig
 	Tracing  TracingConfig
+	OTP      OTPConfig
 }
 
 // AppConfig holds application-related configuration
 type AppConfig struct {
 	GinMode string `koanf:"gin_mode"`
+}
+
+// OTPConfig holds OTP flow and fake SMS provider configuration.
+type OTPConfig struct {
+	CodeLength            int
+	TTL                   time.Duration
+	MaxAttempts           int
+	TenantCacheTTL        time.Duration
+	ProviderTimeout       time.Duration
+	FakeSMSMinDelay       time.Duration
+	FakeSMSMaxDelay       time.Duration
+	FakeSMSDebugCodeRedis bool
+	FakeSMSDebugCodeTTL   time.Duration
+	SendRateLimitEnabled  bool
+	SendRateLimitMax      int
+	SendRateLimitWindow   time.Duration
 }
 
 // TracingConfig holds OpenTelemetry tracing configuration
@@ -85,15 +102,15 @@ type RedisConfig struct {
 
 // MongoConfig holds MongoDB connection and pool configuration
 type MongoConfig struct {
-	URI                     string        `koanf:"uri"`
-	DB                      string        `koanf:"db"`
-	Collection              string        `koanf:"collection"`
-	MaxPoolSize             uint64        `koanf:"max_pool_size"`
-	MinPoolSize             uint64        `koanf:"min_pool_size"`
-	ConnectTimeout          time.Duration `koanf:"connect_timeout"`
-	ServerSelectionTimeout  time.Duration `koanf:"server_selection_timeout"`
-	SocketTimeout           time.Duration `koanf:"socket_timeout"`
-	HeartbeatInterval       time.Duration `koanf:"heartbeat_interval"`
+	URI                    string        `koanf:"uri"`
+	DB                     string        `koanf:"db"`
+	Collection             string        `koanf:"collection"`
+	MaxPoolSize            uint64        `koanf:"max_pool_size"`
+	MinPoolSize            uint64        `koanf:"min_pool_size"`
+	ConnectTimeout         time.Duration `koanf:"connect_timeout"`
+	ServerSelectionTimeout time.Duration `koanf:"server_selection_timeout"`
+	SocketTimeout          time.Duration `koanf:"socket_timeout"`
+	HeartbeatInterval      time.Duration `koanf:"heartbeat_interval"`
 }
 
 // JWTConfig holds JWT-related configuration
@@ -139,6 +156,11 @@ func Load() (*Config, error) {
 	// Load and validate application configuration
 	if err := loadAppConfig(cfg); err != nil {
 		return nil, fmt.Errorf("failed to load app config: %w", err)
+	}
+
+	// Load and validate OTP configuration
+	if err := loadOTPConfig(cfg); err != nil {
+		return nil, fmt.Errorf("failed to load OTP config: %w", err)
 	}
 
 	// Load and validate tracing configuration
@@ -545,6 +567,134 @@ func loadAppConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+// loadOTPConfig loads and validates OTP flow and fake SMS provider configuration.
+func loadOTPConfig(cfg *Config) error {
+	codeLengthStr := os.Getenv("OTP_CODE_LENGTH")
+	if codeLengthStr == "" {
+		codeLengthStr = "6"
+	}
+	codeLength, err := strconv.Atoi(codeLengthStr)
+	if err != nil {
+		return fmt.Errorf("invalid OTP_CODE_LENGTH: %w", err)
+	}
+	if codeLength < 1 || codeLength > 18 {
+		return fmt.Errorf("OTP_CODE_LENGTH must be between 1 and 18")
+	}
+
+	ttl, err := parsePositiveDurationEnv("OTP_TTL", "2m")
+	if err != nil {
+		return err
+	}
+
+	maxAttemptsStr := os.Getenv("OTP_MAX_ATTEMPTS")
+	if maxAttemptsStr == "" {
+		maxAttemptsStr = "3"
+	}
+	maxAttempts, err := strconv.Atoi(maxAttemptsStr)
+	if err != nil {
+		return fmt.Errorf("invalid OTP_MAX_ATTEMPTS: %w", err)
+	}
+	if maxAttempts <= 0 {
+		return fmt.Errorf("OTP_MAX_ATTEMPTS must be > 0")
+	}
+
+	tenantCacheTTL, err := parsePositiveDurationEnv("OTP_TENANT_CACHE_TTL", "5m")
+	if err != nil {
+		return err
+	}
+
+	providerTimeout, err := parsePositiveDurationEnv("OTP_PROVIDER_TIMEOUT", "2s")
+	if err != nil {
+		return err
+	}
+
+	fakeSMSMinDelay, err := parseDurationEnv("OTP_FAKE_SMS_MIN_DELAY", "20ms")
+	if err != nil {
+		return err
+	}
+	if fakeSMSMinDelay < 0 {
+		return fmt.Errorf("OTP_FAKE_SMS_MIN_DELAY must be >= 0")
+	}
+
+	fakeSMSMaxDelay, err := parseDurationEnv("OTP_FAKE_SMS_MAX_DELAY", "30ms")
+	if err != nil {
+		return err
+	}
+	if fakeSMSMaxDelay < 0 {
+		return fmt.Errorf("OTP_FAKE_SMS_MAX_DELAY must be >= 0")
+	}
+	if fakeSMSMaxDelay < fakeSMSMinDelay {
+		return fmt.Errorf("OTP_FAKE_SMS_MAX_DELAY must be >= OTP_FAKE_SMS_MIN_DELAY")
+	}
+
+	debugCodeTTL, err := parsePositiveDurationEnv("OTP_FAKE_SMS_DEBUG_CODE_TTL", "60s")
+	if err != nil {
+		return err
+	}
+
+	sendRateLimitMaxStr := os.Getenv("OTP_SEND_RATE_LIMIT_MAX")
+	if sendRateLimitMaxStr == "" {
+		sendRateLimitMaxStr = "5"
+	}
+	sendRateLimitMax, err := strconv.Atoi(sendRateLimitMaxStr)
+	if err != nil {
+		return fmt.Errorf("invalid OTP_SEND_RATE_LIMIT_MAX: %w", err)
+	}
+	if sendRateLimitMax <= 0 {
+		return fmt.Errorf("OTP_SEND_RATE_LIMIT_MAX must be > 0")
+	}
+
+	sendRateLimitWindow, err := parsePositiveDurationEnv("OTP_SEND_RATE_LIMIT_WINDOW", "10m")
+	if err != nil {
+		return err
+	}
+
+	cfg.OTP = OTPConfig{
+		CodeLength:            codeLength,
+		TTL:                   ttl,
+		MaxAttempts:           maxAttempts,
+		TenantCacheTTL:        tenantCacheTTL,
+		ProviderTimeout:       providerTimeout,
+		FakeSMSMinDelay:       fakeSMSMinDelay,
+		FakeSMSMaxDelay:       fakeSMSMaxDelay,
+		FakeSMSDebugCodeRedis: parseBoolEnv("OTP_FAKE_SMS_DEBUG_CODE_REDIS"),
+		FakeSMSDebugCodeTTL:   debugCodeTTL,
+		SendRateLimitEnabled:  parseBoolEnv("OTP_SEND_RATE_LIMIT_ENABLED"),
+		SendRateLimitMax:      sendRateLimitMax,
+		SendRateLimitWindow:   sendRateLimitWindow,
+	}
+
+	return nil
+}
+
+func parseDurationEnv(key string, defaultValue string) (time.Duration, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		value = defaultValue
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s: %w", key, err)
+	}
+	return parsed, nil
+}
+
+func parsePositiveDurationEnv(key string, defaultValue string) (time.Duration, error) {
+	parsed, err := parseDurationEnv(key, defaultValue)
+	if err != nil {
+		return 0, err
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("%s must be > 0", key)
+	}
+	return parsed, nil
+}
+
+func parseBoolEnv(key string) bool {
+	value := os.Getenv(key)
+	return value == "true" || value == "1"
 }
 
 // loadTracingConfig loads and validates tracing configuration
