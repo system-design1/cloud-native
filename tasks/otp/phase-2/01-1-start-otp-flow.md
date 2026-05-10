@@ -2670,5 +2670,146 @@ Important:
   - summarize changed files and test results.
 
   ----------
+phase 3: config/env + main.go wiring for rate limiter
 
-  
+Analyze Phase 3 of OTP send rate limiting: config/env wiring and main.go integration.
+
+Current state:
+- Phase 1 is done: otp.SendRateLimiter interface exists, SendOTP calls it, ErrOTPRateLimited maps to HTTP 429.
+- Phase 2 is done: repository.NewRedisOTPSendRateLimiter(client, limit, window) exists and is tested.
+- The limiter is not wired into runtime yet.
+- OTP config/env wiring already exists for OTP and fake SMS settings.
+
+Goal:
+Design a small implementation to enable the Redis OTP send rate limiter via env/config and wire it in cmd/server/main.go.
+
+Do not modify files yet.
+
+Please analyze:
+1. Which config fields should be added.
+2. Env variable names and defaults.
+3. Whether the limiter should be disabled by default.
+4. Validation rules for limit/window.
+5. How to wire limiter in main.go.
+6. Whether to call otpService.SetSendRateLimiter only when enabled.
+7. Whether env.example should be updated.
+8. Tests to add/update in config package.
+9. Manual validation steps after implementation.
+10. Risks and deferred concerns.
+
+Proposed env variables:
+- OTP_SEND_RATE_LIMIT_ENABLED=false
+- OTP_SEND_RATE_LIMIT_MAX=5
+- OTP_SEND_RATE_LIMIT_WINDOW=10m
+
+Constraints:
+- Do not implement yet.
+- Keep the diff small.
+- Modify only:
+  - internal/config/config.go
+  - internal/config/config_test.go
+  - cmd/server/main.go
+  - env.example
+- Do not modify otp.Service.
+- Do not modify repository implementation.
+- Do not modify API handlers/routes.
+- Do not add metrics/tracing yet.
+- Preserve current behavior when rate limiting is disabled.
+- Do not enable rate limiting by default.
+- Follow existing config parsing style.
+
+Return:
+1. Recommended config design.
+2. Exact files to change.
+3. Default values.
+4. Validation behavior.
+5. main.go wiring plan.
+6. Tests to add.
+7. Manual runtime test plan.
+--------------
+
+Implement Phase 3 of OTP send rate limiting: config/env wiring and main.go integration.
+
+We are implementing incrementally to avoid large diffs and context/usage limits.
+
+Scope:
+- Modify only:
+  - internal/config/config.go
+  - internal/config/config_test.go
+  - cmd/server/main.go
+  - env.example
+- Do not modify otp.Service.
+- Do not modify repository implementation.
+- Do not modify API handlers/routes.
+- Do not add metrics/tracing.
+- Do not add Retry-After.
+- Do not add per-IP or tenant-wide limits.
+- Keep the diff small and easy to review.
+
+Goal:
+Enable Redis OTP send rate limiter through env/config, while preserving current behavior by default.
+
+Config requirements:
+1. Add these fields to config.OTPConfig:
+   - SendRateLimitEnabled bool
+   - SendRateLimitMax int
+   - SendRateLimitWindow time.Duration
+
+2. Add env variables:
+   - OTP_SEND_RATE_LIMIT_ENABLED default false
+   - OTP_SEND_RATE_LIMIT_MAX default 5
+   - OTP_SEND_RATE_LIMIT_WINDOW default 10m
+
+3. Parsing:
+   - bool: follow existing project style; true and 1 mean true, otherwise false
+   - max: parse int
+   - window: parse time.Duration
+
+4. Validation:
+   - OTP_SEND_RATE_LIMIT_MAX must be > 0
+   - OTP_SEND_RATE_LIMIT_WINDOW must be > 0
+   - Validate these even when OTP_SEND_RATE_LIMIT_ENABLED=false, to catch bad config early.
+
+main.go requirements:
+1. After otpService is constructed, if cfg.OTP.SendRateLimitEnabled is true:
+   - create repository.NewRedisOTPSendRateLimiter(
+       rdb,
+       cfg.OTP.SendRateLimitMax,
+       cfg.OTP.SendRateLimitWindow,
+     )
+   - call otpService.SetSendRateLimiter(limiter)
+
+2. If disabled, do not set limiter and preserve existing behavior.
+
+3. No lifecycle changes.
+
+env.example:
+- Add the three env vars in the OTP config section:
+  - OTP_SEND_RATE_LIMIT_ENABLED=false
+  - OTP_SEND_RATE_LIMIT_MAX=5
+  - OTP_SEND_RATE_LIMIT_WINDOW=10m
+- Follow existing env.example formatting/comment style.
+
+Tests:
+Update config tests:
+- defaults include enabled=false, max=5, window=10m
+- env overrides parse enabled=true, max, window
+- enabled accepts true and 1
+- max=0 returns error
+- max non-int returns error
+- window=0s returns error
+- invalid window returns error
+
+No main.go tests needed unless existing startup wiring tests already exist.
+
+Before modifying files:
+- Briefly state exact files you will change and why.
+
+After implementation:
+- run gofmt
+- run go test -count=1 ./internal/config -v
+- run go test -count=1 ./...
+- summarize changed files and test results.
+------------
+
+

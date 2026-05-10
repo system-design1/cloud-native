@@ -36,6 +36,9 @@ type OTPConfig struct {
 	FakeSMSMaxDelay       time.Duration
 	FakeSMSDebugCodeRedis bool
 	FakeSMSDebugCodeTTL   time.Duration
+	SendRateLimitEnabled  bool
+	SendRateLimitMax      int
+	SendRateLimitWindow   time.Duration
 }
 
 // TracingConfig holds OpenTelemetry tracing configuration
@@ -631,6 +634,23 @@ func loadOTPConfig(cfg *Config) error {
 		return err
 	}
 
+	sendRateLimitMaxStr := os.Getenv("OTP_SEND_RATE_LIMIT_MAX")
+	if sendRateLimitMaxStr == "" {
+		sendRateLimitMaxStr = "5"
+	}
+	sendRateLimitMax, err := strconv.Atoi(sendRateLimitMaxStr)
+	if err != nil {
+		return fmt.Errorf("invalid OTP_SEND_RATE_LIMIT_MAX: %w", err)
+	}
+	if sendRateLimitMax <= 0 {
+		return fmt.Errorf("OTP_SEND_RATE_LIMIT_MAX must be > 0")
+	}
+
+	sendRateLimitWindow, err := parsePositiveDurationEnv("OTP_SEND_RATE_LIMIT_WINDOW", "10m")
+	if err != nil {
+		return err
+	}
+
 	cfg.OTP = OTPConfig{
 		CodeLength:            codeLength,
 		TTL:                   ttl,
@@ -641,6 +661,9 @@ func loadOTPConfig(cfg *Config) error {
 		FakeSMSMaxDelay:       fakeSMSMaxDelay,
 		FakeSMSDebugCodeRedis: parseBoolEnv("OTP_FAKE_SMS_DEBUG_CODE_REDIS"),
 		FakeSMSDebugCodeTTL:   debugCodeTTL,
+		SendRateLimitEnabled:  parseBoolEnv("OTP_SEND_RATE_LIMIT_ENABLED"),
+		SendRateLimitMax:      sendRateLimitMax,
+		SendRateLimitWindow:   sendRateLimitWindow,
 	}
 
 	return nil

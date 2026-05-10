@@ -158,6 +158,9 @@ func main() {
 	otpRequestLogger := repository.NewOTPRequestLogRepository(database)
 	otpVerificationLogger := repository.NewOTPVerificationLogRepository(database)
 	otpService := otp.NewService(otpTenantSettingsProvider, otpStore, otpSMSProvider, otpRequestLogger, otpVerificationLogger, otpConfig)
+	if cfg.OTP.SendRateLimitEnabled {
+		otpService.SetSendRateLimiter(repository.NewRedisOTPSendRateLimiter(rdb, cfg.OTP.SendRateLimitMax, cfg.OTP.SendRateLimitWindow))
+	}
 	log.Info().Msg("Repositories initialized successfully")
 
 	// Set Gin mode from configuration

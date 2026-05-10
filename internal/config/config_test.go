@@ -284,6 +284,15 @@ func TestLoadOTPConfigDefaults(t *testing.T) {
 	if cfg.OTP.FakeSMSDebugCodeTTL != time.Minute {
 		t.Errorf("Expected OTP_FAKE_SMS_DEBUG_CODE_TTL default to be 60s, got %v", cfg.OTP.FakeSMSDebugCodeTTL)
 	}
+	if cfg.OTP.SendRateLimitEnabled {
+		t.Error("Expected OTP_SEND_RATE_LIMIT_ENABLED default to be false")
+	}
+	if cfg.OTP.SendRateLimitMax != 5 {
+		t.Errorf("Expected OTP_SEND_RATE_LIMIT_MAX default to be 5, got %d", cfg.OTP.SendRateLimitMax)
+	}
+	if cfg.OTP.SendRateLimitWindow != 10*time.Minute {
+		t.Errorf("Expected OTP_SEND_RATE_LIMIT_WINDOW default to be 10m, got %v", cfg.OTP.SendRateLimitWindow)
+	}
 }
 
 func TestLoadOTPConfigFromEnv(t *testing.T) {
@@ -297,6 +306,9 @@ func TestLoadOTPConfigFromEnv(t *testing.T) {
 	t.Setenv("OTP_FAKE_SMS_MAX_DELAY", "10ms")
 	t.Setenv("OTP_FAKE_SMS_DEBUG_CODE_REDIS", "true")
 	t.Setenv("OTP_FAKE_SMS_DEBUG_CODE_TTL", "45s")
+	t.Setenv("OTP_SEND_RATE_LIMIT_ENABLED", "true")
+	t.Setenv("OTP_SEND_RATE_LIMIT_MAX", "9")
+	t.Setenv("OTP_SEND_RATE_LIMIT_WINDOW", "15m")
 
 	cfg := &Config{}
 	err := loadOTPConfig(cfg)
@@ -331,6 +343,15 @@ func TestLoadOTPConfigFromEnv(t *testing.T) {
 	if cfg.OTP.FakeSMSDebugCodeTTL != 45*time.Second {
 		t.Errorf("Expected FakeSMSDebugCodeTTL=45s, got %v", cfg.OTP.FakeSMSDebugCodeTTL)
 	}
+	if !cfg.OTP.SendRateLimitEnabled {
+		t.Error("Expected SendRateLimitEnabled=true")
+	}
+	if cfg.OTP.SendRateLimitMax != 9 {
+		t.Errorf("Expected SendRateLimitMax=9, got %d", cfg.OTP.SendRateLimitMax)
+	}
+	if cfg.OTP.SendRateLimitWindow != 15*time.Minute {
+		t.Errorf("Expected SendRateLimitWindow=15m, got %v", cfg.OTP.SendRateLimitWindow)
+	}
 }
 
 func TestLoadOTPConfigValidation(t *testing.T) {
@@ -360,6 +381,22 @@ func TestLoadOTPConfigValidation(t *testing.T) {
 		{
 			name: "debug ttl zero",
 			env:  map[string]string{"OTP_FAKE_SMS_DEBUG_CODE_TTL": "0s"},
+		},
+		{
+			name: "send rate limit max zero",
+			env:  map[string]string{"OTP_SEND_RATE_LIMIT_MAX": "0"},
+		},
+		{
+			name: "send rate limit max non-int",
+			env:  map[string]string{"OTP_SEND_RATE_LIMIT_MAX": "many"},
+		},
+		{
+			name: "send rate limit window zero",
+			env:  map[string]string{"OTP_SEND_RATE_LIMIT_WINDOW": "0s"},
+		},
+		{
+			name: "send rate limit window invalid",
+			env:  map[string]string{"OTP_SEND_RATE_LIMIT_WINDOW": "soon"},
 		},
 	}
 
@@ -397,6 +434,25 @@ func TestLoadOTPConfigDebugFlagTrueValues(t *testing.T) {
 	}
 }
 
+func TestLoadOTPConfigSendRateLimitEnabledTrueValues(t *testing.T) {
+	for _, value := range []string{"true", "1"} {
+		t.Run(value, func(t *testing.T) {
+			clearOTPEnv(t)
+			t.Setenv("OTP_SEND_RATE_LIMIT_ENABLED", value)
+
+			cfg := &Config{}
+			err := loadOTPConfig(cfg)
+
+			if err != nil {
+				t.Fatalf("Failed to load OTP config: %v", err)
+			}
+			if !cfg.OTP.SendRateLimitEnabled {
+				t.Errorf("Expected send rate limit flag to be true for %q", value)
+			}
+		})
+	}
+}
+
 func clearOTPEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
@@ -409,6 +465,9 @@ func clearOTPEnv(t *testing.T) {
 		"OTP_FAKE_SMS_MAX_DELAY",
 		"OTP_FAKE_SMS_DEBUG_CODE_REDIS",
 		"OTP_FAKE_SMS_DEBUG_CODE_TTL",
+		"OTP_SEND_RATE_LIMIT_ENABLED",
+		"OTP_SEND_RATE_LIMIT_MAX",
+		"OTP_SEND_RATE_LIMIT_WINDOW",
 	} {
 		t.Setenv(key, "")
 	}
