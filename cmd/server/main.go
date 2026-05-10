@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -141,6 +142,9 @@ func main() {
 	otpTenantSettingsProvider := repository.NewCachedTenantSettingsProvider(rdb, tenantSettingsRepo, otpConfig.TenantCacheTTL)
 	otpStore := repository.NewRedisOTPStore(rdb)
 	otpSMSProvider := sms.NewFakeProvider()
+	if strings.EqualFold(os.Getenv("OTP_FAKE_SMS_DEBUG_CODE_REDIS"), "true") && cfg.App.GinMode != gin.ReleaseMode {
+		otpSMSProvider = sms.NewFakeProviderWithDebugCodeCapture(rdb, minDuration(time.Minute, otpConfig.TTL))
+	}
 	otpRequestLogger := repository.NewOTPRequestLogRepository(database)
 	otpService := otp.NewService(otpTenantSettingsProvider, otpStore, otpSMSProvider, otpRequestLogger, nil, otpConfig)
 	log.Info().Msg("Repositories initialized successfully")
@@ -268,4 +272,11 @@ func main() {
 	log.Info().
 		Str("state", lifecycleMgr.GetState().String()).
 		Msg("Server exited gracefully")
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
 }

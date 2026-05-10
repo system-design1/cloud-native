@@ -2,15 +2,53 @@ package sms
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"go-backend-service/internal/otp"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func setupTestRedis(t *testing.T) *redis.Client {
+	client := redis.NewClient(&redis.Options{
+		Addr:     getEnvOrDefault("REDIS_HOST", "127.0.0.1") + ":" + getEnvOrDefault("REDIS_PORT", "6379"),
+		Password: getEnvOrDefault("REDIS_PASSWORD", ""),
+		DB:       getEnvIntOrDefault("REDIS_DB", 0),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close()
+		t.Skipf("Skipping test: redis not available: %v", err)
+	}
+
+	return client
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvIntOrDefault(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if result, err := strconv.Atoi(value); err == nil {
+			return result
+		}
+	}
+	return defaultValue
+}
 
 func TestFakeProviderSendOTPSuccess(t *testing.T) {
 	provider := newFakeProviderWithDelay(0, 0)
@@ -97,4 +135,80 @@ func TestNewFakeProviderDefaultLatencyRange(t *testing.T) {
 
 	assert.Equal(t, 20*time.Millisecond, provider.minDelay)
 	assert.Equal(t, 30*time.Millisecond, provider.maxDelay)
+}
+
+func TestFakeProviderDebugCodeCaptureStoresCodeInRedis(t *testing.T) {
+	client := setupTestRedis(t)
+	defer client.Close()
+
+	provider := NewFakeProviderWithDebugCodeCapture(client, time.Minute)
+	provider.minDelay = 0
+	provider.maxDelay = 0
+
+	req := otp.SMSRequest{
+		RequestID: "request-debug-code",
+		TenantID:  456,
+		Phone:     "+989121234568",
+		Code:      "112233",
+		Provider:  "fake",
+	}
+	key := debugCodeKey(req.TenantID, req.Phone)
+	ctx := context.Background()
+	defer client.Del(ctx, key)
+	require.NoError(t, client.Del(ctx, key).Err())
+
+	result, err := provider.SendOTP(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.NotContains(t, result.RawResponse, "code")
+
+	data, err := client.Get(ctx, key).Bytes()
+	require.NoError(t, err)
+
+	var stored debugCodeValue
+	require.NoError(t, json.Unmarshal(data, &stored))
+	assert.Equal(t, req.RequestID, stored.RequestID)
+	assert.Equal(t, req.TenantID, stored.TenantID)
+	assert.Equal(t, req.Phone, stored.Phone)
+	assert.Equal(t, req.Code, stored.Code)
+	assert.Equal(t, req.Provider, stored.Provider)
+	assert.False(t, stored.CreatedAt.IsZero())
+
+	ttl, err := client.TTL(ctx, key).Result()
+	require.NoError(t, err)
+	assert.Greater(t, ttl, time.Duration(0))
+}
+
+func TestFakeProviderDebugCodeCaptureCanceledContextDoesNotWrite(t *testing.T) {
+	client := setupTestRedis(t)
+	defer client.Close()
+
+	provider := NewFakeProviderWithDebugCodeCapture(client, time.Minute)
+	provider.minDelay = 50 * time.Millisecond
+	provider.maxDelay = 50 * time.Millisecond
+
+	req := otp.SMSRequest{
+		RequestID: "request-debug-canceled",
+		TenantID:  457,
+		Phone:     "+989121234569",
+		Code:      "445566",
+	}
+	key := debugCodeKey(req.TenantID, req.Phone)
+	ctx := context.Background()
+	defer client.Del(ctx, key)
+	require.NoError(t, client.Del(ctx, key).Err())
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Millisecond)
+	defer cancel()
+
+	result, err := provider.SendOTP(timeoutCtx, req)
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, context.DeadlineExceeded))
+
+	exists, err := client.Exists(ctx, key).Result()
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), exists)
 }
