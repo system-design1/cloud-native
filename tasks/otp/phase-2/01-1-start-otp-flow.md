@@ -2811,5 +2811,57 @@ After implementation:
 - run go test -count=1 ./...
 - summarize changed files and test results.
 ------------
+Analyze the next step for OTP observability: metrics and tracing.
+
+Current state:
+- OTP SendOTP and VerifyOTP are implemented.
+- HTTP handlers/routes are implemented.
+- Redis OTP state is implemented.
+- resend protection is implemented.
+- send rate limiting is implemented and wired through config.
+- request logging and verification logging are implemented.
+- fake SMS provider and debug OTP capture exist.
+
+Goal:
+Design a small, incremental observability implementation for OTP flows.
+
+Do not modify files yet.
+
+Please analyze:
+1. Current metrics package and existing Prometheus metric style.
+2. Current tracing package and existing OpenTelemetry style.
+3. Where OTP metrics should be recorded:
+   - handler layer
+   - service layer
+   - repository/provider layer
+4. Which SendOTP metrics to add.
+5. Which VerifyOTP metrics to add.
+6. Which SMS provider metrics to add.
+7. Which tenant cache/rate limit metrics to add now vs defer.
+8. Which trace spans/attributes to add.
+9. Label cardinality risks, especially tenant_id and phone.
+10. Exact files that should change.
+11. Tests to add or skip.
+12. Manual validation steps.
+13. What should be deferred.
+
+Important constraints:
+- Do not implement yet.
+- Keep the next diff small.
+- Do not add high-cardinality labels like phone.
+- Be careful with tenant_id labels if cardinality is a concern.
+- Do not expose OTP codes.
+- Do not change business behavior.
+- Do not add new dependencies unless already used.
+- Prefer existing metrics/tracing conventions in this codebase.
+
+Return:
+1. Recommended observability design.
+2. Metric names, types, and labels.
+3. Trace spans and attributes.
+4. Exact files to change.
+5. Test plan.
+6. Deferred concerns.
+
 
 

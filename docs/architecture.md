@@ -968,3 +968,11 @@ Recommended next implementation sequence:
 12. Add observability metrics/traces/log fields.
 13. Implement `POST /v1/otp/verify`.
 14. Benchmark the complete flow.
+
+
+## AI-Assisted Development Workflow
+
+Development workflow, implementation slicing,
+and ChatGPT/Codex collaboration rules are documented in:
+
+docs/ai-workflow.md
