@@ -1,0 +1,25 @@
+http:
+  routers:
+    otp:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - web
+      service: otp-service
+      middlewares:
+        - gateway-header
+
+  services:
+    otp-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8080"
+        healthCheck:
+          path: /health
+          interval: 5s
+          timeout: 2s
+
+  middlewares:
+    gateway-header:
+      headers:
+        customResponseHeaders:
+          X-Gateway-Node: traefik-baseline

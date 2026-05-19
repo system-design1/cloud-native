@@ -11,6 +11,7 @@
 - [راه‌اندازی محیط Production](#-راهاندازی-محیط-production)
 - [API Endpoints](#-api-endpoints)
 - [استفاده از Makefile](#-استفاده-از-makefile)
+- [Availability Lab: Traefik Gateway](#-availability-lab-traefik-gateway)
 - [Observability](#-observability)
 - [مستندات بیشتر](#-مستندات-بیشتر)
 
@@ -118,6 +119,10 @@ sdgo/
 │   ├── loki/                 # Loki configs
 │   └── promtail/             # Promtail configs
 │
+├── deploy/                   # سناریوهای deploy و availability lab
+│   └── availability-lab/
+│       └── traefik-baseline/ # آزمایش local Traefik gateway
+│
 ├── docs/                     # مستندات پروژه
 │   ├── QUICK_START.md        # راهنمای سریع
 │   ├── LOCAL_DEVELOPMENT.md  # راهنمای development
@@ -144,6 +149,7 @@ sdgo/
 - **`internal/`**: کدهای داخلی که نباید از خارج پروژه استفاده شوند.
 - **`pkg/`**: کدهای قابل استفاده خارجی (مثل libraries).
 - **`configs/`**: فایل‌های configuration برای ابزارهای خارجی.
+- **`deploy/availability-lab/traefik-baseline/`**: آزمایش availability محلی برای اجرای Traefik به عنوان gateway جلوی backend.
 
 ---
 
@@ -447,11 +453,13 @@ curl http://localhost:8080/metrics
 
 #### OTP Service
 
-**Phase 1: Generation only** (no persistence, no SMS, no verification)
-
 | Endpoint | Method | توضیحات |
 |----------|--------|---------|
-| `/v1/otp/code` | POST | Generate a 6-digit OTP code |
+| `/v1/otp/code` | POST | Generate a 6-digit OTP code برای benchmark و تست ساده |
+| `/v1/otp/send` | POST | شروع flow واقعی OTP |
+| `/v1/otp/verify` | POST | بررسی OTP و پایان مصرف یک‌بارمصرف آن |
+
+Flow فعلی OTP شامل Redis state، fake SMS provider، request logging، verification logging، resend protection و send rate limiting است. جزئیات بیشتر در [current-state.md](./docs/current-state.md) و [architecture.md](./docs/architecture.md) نگهداری می‌شود.
 
 **Response:**
 ```json
@@ -499,6 +507,42 @@ make build            # Build binary
 make test             # اجرای تست‌ها
 make deps             # دانلود dependencies
 ```
+
+### Availability Lab: Traefik Gateway
+
+این lab یک gateway ساده و local جلوی backend قرار می‌دهد:
+
+```text
+Client -> Traefik -> OTP Service
+```
+
+حالت‌های دسترسی:
+
+| حالت | آدرس |
+|------|------|
+| Direct backend mode | `http://localhost:8080` |
+| Traefik gateway mode | `http://localhost:8081` |
+| Traefik dashboard | `http://localhost:8082/dashboard/` |
+
+Traefik در این lab همه مسیرها را با ``PathPrefix(`/`)`` به backend می‌فرستد و برای اثبات عبور traffic از gateway، header زیر را اضافه می‌کند:
+
+```text
+X-Gateway-Node: traefik-baseline
+```
+
+دستورات اصلی:
+
+```bash
+make traefik-config      # validate کردن compose lab
+make traefik-up          # اجرای فقط Traefik gateway
+make traefik-down        # توقف فقط Traefik gateway
+make traefik-logs        # مشاهده logs
+make traefik-ps          # مشاهده containerهای lab
+make traefik-stack-up    # اجرای backend stack و سپس Traefik
+make traefik-stack-down  # توقف Traefik و سپس backend stack
+```
+
+راهنمای کامل این lab در [`deploy/availability-lab/traefik-baseline/README.md`](./deploy/availability-lab/traefik-baseline/README.md) قرار دارد.
 
 ### دستورات کامل
 
@@ -741,6 +785,20 @@ JWT_EXPIRATION=24h
 # Application
 GIN_MODE=release  # یا debug برای development
 LOG_LEVEL=info    # debug, info, warn, error
+
+# OTP
+OTP_CODE_LENGTH=6
+OTP_TTL=2m
+OTP_MAX_ATTEMPTS=3
+OTP_TENANT_CACHE_TTL=5m
+OTP_PROVIDER_TIMEOUT=2s
+OTP_FAKE_SMS_MIN_DELAY=20ms
+OTP_FAKE_SMS_MAX_DELAY=30ms
+OTP_FAKE_SMS_DEBUG_CODE_REDIS=false
+OTP_FAKE_SMS_DEBUG_CODE_TTL=60s
+OTP_SEND_RATE_LIMIT_ENABLED=false
+OTP_SEND_RATE_LIMIT_MAX=5
+OTP_SEND_RATE_LIMIT_WINDOW=10m
 
 # OpenTelemetry
 OTEL_TRACING_ENABLED=true

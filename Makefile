@@ -7,6 +7,7 @@ DOCKER := docker
 DOCKER_COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/$(PROJECT_NAME)
+TRAEFIK_LAB_COMPOSE := deploy/availability-lab/traefik-baseline/compose.yml
 
 # BuildKit settings - enable for faster builds
 export DOCKER_BUILDKIT=1
@@ -236,6 +237,34 @@ docker-down: ## Stop the Docker containers with docker-compose down
 .PHONY: docker-logs
 docker-logs: ## View logs from Docker containers
 	@$(DOCKER_COMPOSE) logs -f
+
+.PHONY: traefik-config
+traefik-config: ## Validate Traefik availability lab compose config
+	@$(DOCKER_COMPOSE) -f $(TRAEFIK_LAB_COMPOSE) config
+
+.PHONY: traefik-up
+traefik-up: ## Start only the Traefik availability lab gateway
+	@$(DOCKER_COMPOSE) -f $(TRAEFIK_LAB_COMPOSE) up -d
+
+.PHONY: traefik-down
+traefik-down: ## Stop the Traefik availability lab gateway
+	@$(DOCKER_COMPOSE) -f $(TRAEFIK_LAB_COMPOSE) down
+
+.PHONY: traefik-logs
+traefik-logs: ## Follow Traefik availability lab logs
+	@$(DOCKER_COMPOSE) -f $(TRAEFIK_LAB_COMPOSE) logs -f traefik
+
+.PHONY: traefik-ps
+traefik-ps: ## Show Traefik availability lab containers
+	@$(DOCKER_COMPOSE) -f $(TRAEFIK_LAB_COMPOSE) ps
+
+.PHONY: traefik-stack-up
+traefik-stack-up: docker-up traefik-up ## Start backend stack, then Traefik lab gateway
+
+.PHONY: traefik-stack-down
+traefik-stack-down: ## Stop Traefik lab gateway, then backend stack
+	@$(MAKE) traefik-down
+	@$(MAKE) docker-down
 
 # Clean build artifacts
 .PHONY: clean
