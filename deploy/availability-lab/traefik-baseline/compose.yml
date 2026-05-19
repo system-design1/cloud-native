@@ -1,0 +1,13 @@
+services:
+  traefik:
+    image: traefik:v3.7.1
+    container_name: otp-lab-traefik-baseline
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+      - "8082:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
